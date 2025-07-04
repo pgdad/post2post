@@ -9,8 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	// Uncomment the following line to enable full Tailscale integration:
-	// "tailscale.com/tsnet"
+	"tailscale.com/tsnet"
 )
 
 // RequestData represents the incoming request structure
@@ -54,10 +53,11 @@ func main() {
 	fmt.Println("Send POST requests to http://localhost:8082/webhook")
 	fmt.Println("Make sure to include 'tailnet_key' in your requests for Tailscale integration")
 	fmt.Println()
-	fmt.Println("To enable full Tailscale integration:")
-	fmt.Println("1. Uncomment tsnet import and code in this file")
-	fmt.Println("2. Add 'tailscale.com v1.76.1' to go.mod")
-	fmt.Println("3. Provide valid Tailscale auth keys in requests")
+	fmt.Println("Tailscale integration is ENABLED:")
+	fmt.Println("✓ tsnet import active")
+	fmt.Println("✓ Full Tailscale client creation enabled")
+	fmt.Println("✓ Secure networking via Tailscale ready")
+	fmt.Println("Note: Requires valid Tailscale auth keys in requests")
 	fmt.Println()
 	log.Fatal(http.ListenAndServe(port, nil))
 }
@@ -254,28 +254,33 @@ func postResponseViaHTTP(url string, data []byte) error {
 
 // createTailscaleClient creates an HTTP client that routes through Tailscale
 func createTailscaleClient(tailnetKey string) (*http.Client, error) {
-	// Framework for Tailscale integration using tsnet
-	// 
-	// To implement full Tailscale integration, uncomment and modify the following:
-	//
-	// srv := &tsnet.Server{
-	//     Hostname: "post2post-receiver",
-	//     AuthKey:  tailnetKey,
-	//     Ephemeral: true, // Good for demo/testing
-	// }
-	// 
-	// // Start the tsnet server
-	// err := srv.Start()
-	// if err != nil {
-	//     return nil, fmt.Errorf("failed to start tsnet server: %w", err)
-	// }
-	//
-	// // Create HTTP client that routes through Tailscale
-	// client := srv.HTTPClient()
-	// return client, nil
+	log.Printf("Creating Tailscale client with key: %s...", tailnetKey[:min(10, len(tailnetKey))])
 	
-	// For development/demo, return an error indicating Tailscale setup is needed
-	return nil, fmt.Errorf("Tailscale tsnet integration requires configuration. Auth key: %s", tailnetKey[:min(10, len(tailnetKey))])
+	srv := &tsnet.Server{
+		Hostname:  "post2post-receiver",
+		AuthKey:   tailnetKey,
+		Ephemeral: true, // Good for demo/testing - creates temporary device
+		Logf:      func(format string, args ...interface{}) {
+			log.Printf("[tsnet] "+format, args...)
+		},
+	}
+	
+	log.Printf("Starting tsnet server with hostname: %s", srv.Hostname)
+	
+	// Start the tsnet server
+	err := srv.Start()
+	if err != nil {
+		return nil, fmt.Errorf("failed to start tsnet server: %w", err)
+	}
+	
+	log.Printf("Tailscale tsnet server started successfully")
+	
+	// Create HTTP client that routes through Tailscale
+	client := srv.HTTPClient()
+	
+	log.Printf("Tailscale HTTP client created successfully")
+	
+	return client, nil
 }
 
 // getTailscaleMode returns the current Tailscale operation mode
@@ -283,9 +288,8 @@ func getTailscaleMode(tailnetKey string) string {
 	if tailnetKey == "" {
 		return "disabled"
 	}
-	// Check if tsnet is actually configured
-	// For now, return framework mode since full integration needs setup
-	return "framework-ready"
+	// Full tsnet integration is now enabled
+	return "tsnet-enabled"
 }
 
 // min returns the minimum of two integers

@@ -115,37 +115,42 @@ export LISTEN_INTERFACE='0.0.0.0'  # Listen on all interfaces
 # export LISTEN_INTERFACE='100.x.x.x'  # Listen on Tailscale IP
 ```
 
-### 5. Enable Full Tailscale Integration
+### 5. Build Tailscale-Enabled Receiver
 
-For production use, enable full tsnet integration:
+The `receiver_tailnet.go` file has full Tailscale integration enabled by default. To build it:
 
-#### In `receiver_tailnet.go`:
-```go
-// Uncomment the tsnet import at the top
-import "tailscale.com/tsnet"
-
-// In createTailscaleClient(), uncomment and configure:
-srv := &tsnet.Server{
-    Hostname: "post2post-receiver",
-    AuthKey:  tailnetKey,
-    Ephemeral: true,
-}
-
-err := srv.Start()
-if err != nil {
-    return nil, fmt.Errorf("failed to start tsnet server: %w", err)
-}
-
-client := srv.HTTPClient()
-return client, nil
-```
-
-#### Update go.mod:
+#### Option A: Use the Build Script (Recommended)
 ```bash
 cd examples
-go mod edit -require tailscale.com@v1.76.1
-go mod tidy
+./build_receiver_tailnet.sh
 ```
+
+This creates `receiver_tailnet_with_tsnet` executable with all dependencies.
+
+#### Option B: Manual Build
+```bash
+# Create temporary module
+mkdir temp_build && cd temp_build
+cp ../receiver_tailnet.go .
+
+# Create go.mod with Tailscale dependency
+cat > go.mod << 'EOF'
+module receiver-tailnet
+go 1.21
+require tailscale.com v1.76.1
+EOF
+
+# Build
+go mod tidy
+go build receiver_tailnet.go
+```
+
+#### Features Enabled:
+- ✅ Full tsnet integration active
+- ✅ Secure HTTP client creation via Tailscale
+- ✅ Automatic ephemeral device creation
+- ✅ Comprehensive logging and error handling
+- ✅ Production-ready Tailscale networking
 
 ## Usage Examples
 
@@ -155,7 +160,10 @@ go mod tidy
 ```bash
 cd examples
 export TAILSCALE_AUTH_KEY='tskey-auth-your-key-here'
-go run receiver_tailnet.go
+
+# Build and run the Tailscale-enabled receiver
+./build_receiver_tailnet.sh
+./receiver_tailnet_with_tsnet
 ```
 
 **Terminal 2 - Run Client:**
@@ -174,9 +182,10 @@ go run client_tailnet.go
 # Get Tailscale IP
 tailscale ip
 
-# Start receiver (accessible via Tailscale network)
+# Build and start receiver (accessible via Tailscale network)
 export TAILSCALE_AUTH_KEY='tskey-auth-your-key-here'
-go run receiver_tailnet.go
+./build_receiver_tailnet.sh
+./receiver_tailnet_with_tsnet
 ```
 
 **On Client Machine:**
