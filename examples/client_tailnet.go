@@ -29,13 +29,22 @@ func main() {
 		fmt.Println("Set RECEIVER_URL environment variable to override")
 	}
 
+	// Get network interface address from environment variable or use default
+	interfaceAddr := os.Getenv("LISTEN_INTERFACE")
+	if interfaceAddr == "" {
+		interfaceAddr = "127.0.0.1"
+		fmt.Printf("Using default interface: %s\n", interfaceAddr)
+		fmt.Println("Set LISTEN_INTERFACE environment variable to override")
+	}
+
 	fmt.Printf("Tailscale key: %s...\n", tailnetKey[:min(10, len(tailnetKey))])
 	fmt.Printf("Receiver URL: %s\n", receiverURL)
+	fmt.Printf("Listen interface: %s\n", interfaceAddr)
 	fmt.Println()
 
 	// Create post2post server for receiving responses
 	server := post2post.NewServer().
-		WithInterface("127.0.0.1").
+		WithInterface(interfaceAddr).
 		WithPostURL(receiverURL).
 		WithTimeout(30 * time.Second)
 
@@ -228,6 +237,7 @@ func printTailscaleInstructions() {
 	fmt.Println("2. Set environment variables:")
 	fmt.Println("   export TAILSCALE_AUTH_KEY='tskey-auth-your-key-here'")
 	fmt.Println("   export RECEIVER_URL='http://receiver-host:port/webhook'")
+	fmt.Println("   export LISTEN_INTERFACE='0.0.0.0'  # Optional, defaults to 127.0.0.1")
 	fmt.Println()
 	fmt.Println("3. Enable full Tailscale integration:")
 	fmt.Println("   - Uncomment tsnet code in post2post.go createTailscaleClient()")
@@ -243,6 +253,7 @@ func printTailscaleInstructions() {
 	fmt.Println("Environment Variables:")
 	fmt.Printf("  TAILSCALE_AUTH_KEY: %s\n", getEnvStatus("TAILSCALE_AUTH_KEY"))
 	fmt.Printf("  RECEIVER_URL: %s\n", getEnvStatus("RECEIVER_URL"))
+	fmt.Printf("  LISTEN_INTERFACE: %s\n", getEnvStatus("LISTEN_INTERFACE"))
 }
 
 // getEnvStatus returns the status of an environment variable

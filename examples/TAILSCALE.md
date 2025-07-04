@@ -35,6 +35,7 @@ A receiver that processes webhooks and responds via Tailscale networking:
 ### 🔑 **Environment-Based Configuration**
 - Tailscale auth keys from environment variables
 - Configurable receiver URLs
+- Configurable network interface for client listener
 - Secure credential management
 
 ### ⚡ **Performance Features**
@@ -87,12 +88,31 @@ tailscale status
 
 ### 4. Configure Environment
 
+#### Environment Variables
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `TAILSCALE_AUTH_KEY` | Tailscale auth key (required) | None | `tskey-auth-xyz123...` |
+| `RECEIVER_URL` | Webhook receiver endpoint | `http://127.0.0.1:8082/webhook` | `http://100.x.x.x:8082/webhook` |
+| `LISTEN_INTERFACE` | Client listener interface | `127.0.0.1` | `0.0.0.0` or `100.y.y.y` |
+
+#### Interface Configuration Options
+
+- **`127.0.0.1`** (default): Listen only on localhost
+- **`0.0.0.0`**: Listen on all interfaces
+- **`100.x.x.x`**: Listen on specific Tailscale IP
+- **`192.168.x.x`**: Listen on specific LAN IP
+
 ```bash
 # Set Tailscale auth key
 export TAILSCALE_AUTH_KEY='tskey-auth-your-key-here'
 
 # Set receiver URL (optional, defaults to localhost:8082)
 export RECEIVER_URL='http://receiver-hostname:8082/webhook'
+
+# Set listen interface (optional, defaults to 127.0.0.1)
+export LISTEN_INTERFACE='0.0.0.0'  # Listen on all interfaces
+# export LISTEN_INTERFACE='100.x.x.x'  # Listen on Tailscale IP
 ```
 
 ### 5. Enable Full Tailscale Integration
@@ -143,6 +163,7 @@ go run receiver_tailnet.go
 cd examples  
 export TAILSCALE_AUTH_KEY='tskey-auth-your-key-here'
 export RECEIVER_URL='http://127.0.0.1:8082/webhook'
+export LISTEN_INTERFACE='127.0.0.1'  # Optional, this is the default
 go run client_tailnet.go
 ```
 
@@ -160,9 +181,10 @@ go run receiver_tailnet.go
 
 **On Client Machine:**
 ```bash
-# Use receiver's Tailscale IP
+# Use receiver's Tailscale IP and listen on Tailscale interface
 export TAILSCALE_AUTH_KEY='tskey-auth-your-key-here'
-export RECEIVER_URL='http://100.x.x.x:8082/webhook'  # Tailscale IP
+export RECEIVER_URL='http://100.x.x.x:8082/webhook'  # Receiver's Tailscale IP
+export LISTEN_INTERFACE='100.y.y.y'  # Client's Tailscale IP
 go run client_tailnet.go
 ```
 
