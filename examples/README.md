@@ -1,25 +1,41 @@
 # Post2Post Examples
 
-This directory contains example programs demonstrating how to use the post2post library for round trip posting.
+This directory contains example programs demonstrating how to use the post2post library for round trip posting and configurable payload processing.
 
 ## Programs
 
-### 1. `receiver.go` - Receiving Web Server
+### 1. `receiver.go` - Configurable Receiving Web Server
 
-A standalone Go program that acts as the receiving web server. This server:
+A standalone Go program that demonstrates configurable payload processing. This server:
 
-- Listens on port 8081 at `/webhook` endpoint
-- Receives POST requests with JSON data
-- Extracts the callback URL from the request
-- Processes the data and adds a timestamp field
-- Posts the enhanced response back to the callback URL
+- Uses the post2post library with configurable processors
+- Supports multiple processor types via command line arguments
+- Listens on a random port and provides `/webhook` endpoint
+- Processes incoming payloads according to the selected processor
+- Posts processed responses back to callback URLs
 
-**Features:**
-- Adds human-readable timestamp to responses
-- Includes processing metadata (processed_by, status)
-- Preserves original payload data
-- Provides logging of all operations
-- Handles concurrent requests
+**Available Processors:**
+- `hello` - Hello World Processor (always returns "Hello World")
+- `echo` - Echo Processor (returns original payload with metadata) *default*
+- `timestamp` - Timestamp Processor (adds detailed timestamp info)
+- `counter` - Counter Processor (maintains request counter)
+- `advanced` - Advanced Context Processor (includes processing context)
+- `transform` - Transform Processor (converts strings to uppercase)
+- `validator` - Validator Processor (validates required fields: name, email)
+- `chain` - Chain Processor (combines timestamp → transform → echo)
+
+**Usage:**
+```bash
+go run receiver.go [processor_type]
+```
+
+**Examples:**
+```bash
+go run receiver.go           # Uses echo processor (default)
+go run receiver.go hello     # Uses hello world processor
+go run receiver.go transform # Uses transform processor
+go run receiver.go validator # Uses validator processor
+```
 
 ### 2. `client.go` - Post2Post Client
 
@@ -37,6 +53,7 @@ A demonstration client that uses the post2post library to:
 - Concurrent round trip requests
 - Fire-and-forget JSON posting
 - Tailscale integration demonstration
+- Payload processor testing (Hello World, Transform, Validator)
 
 ## Running the Examples
 
@@ -50,37 +67,65 @@ A demonstration client that uses the post2post library to:
 
 ### Step 1: Start the Receiver Server
 
-In one terminal:
+In one terminal, choose a processor type and start the receiver:
 
 ```bash
 cd examples
-go run receiver.go
+go run receiver.go echo        # or any other processor type
 ```
 
 You should see:
 ```
-Receiving server starting on port :8081
-Send POST requests to http://localhost:8081/webhook
+Using Echo Processor
+Receiving server started at: http://127.0.0.1:xxxxx
+Send POST requests to /webhook endpoint
+Available endpoints:
+  - http://127.0.0.1:xxxxx/webhook (for payload processing)
+  - http://127.0.0.1:xxxxx/roundtrip (for round-trip responses)  
+  - http://127.0.0.1:xxxxx/ (for server info)
+```
+
+To test different processors, try:
+```bash
+go run receiver.go hello      # Always returns "Hello World"
+go run receiver.go transform  # Converts strings to uppercase
+go run receiver.go validator  # Validates required fields
+go run receiver.go counter    # Counts requests
 ```
 
 ### Step 2: Run the Client
 
-In another terminal:
+First, update the client to connect to your receiver's actual port. In the receiver output, note the port number (e.g., `http://127.0.0.1:54321`), then edit `client.go`:
+
+```go
+// Update this line in client.go with the receiver's actual port
+WithPostURL("http://127.0.0.1:RECEIVER_PORT/webhook").
+```
+
+Then in another terminal:
 
 ```bash
-cd examples
+cd examples  
 go run client.go
 ```
 
-The client will demonstrate various round trip scenarios and display the results.
+The client will demonstrate various round trip scenarios and display the results based on the processor type you selected.
 
 ## Example Flow
 
 1. **Client starts** its own web server (random port)
-2. **Client posts** JSON data to receiver at `http://localhost:8081/webhook`
-3. **Receiver processes** the data and adds timestamp
-4. **Receiver posts back** enhanced data to client's `/roundtrip` endpoint
+2. **Client posts** JSON data to receiver at `/webhook` endpoint
+3. **Receiver processes** the data using the configured processor
+4. **Receiver posts back** processed data to client's `/roundtrip` endpoint
 5. **Client receives** the response and displays results
+
+The exact processing depends on which processor type you selected:
+- **Hello World**: Ignores input, always returns "Hello World"
+- **Echo**: Returns original payload with metadata
+- **Transform**: Converts strings to uppercase
+- **Validator**: Checks for required fields and reports validation status
+- **Counter**: Adds incrementing counter to responses
+- **Advanced**: Includes detailed context and processing information
 
 ## JSON Structure
 

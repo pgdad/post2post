@@ -15,7 +15,7 @@ func main() {
 	// Create server with configuration
 	server := post2post.NewServer().
 		WithInterface("127.0.0.1").                         // Listen on localhost
-		WithPostURL("http://localhost:8081/webhook").       // Receiver server endpoint
+		WithPostURL("http://127.0.0.1:8081/webhook").       // Receiver server endpoint  
 		WithTimeout(10 * time.Second)                       // 10 second timeout
 
 	// Start the server
@@ -173,7 +173,74 @@ func main() {
 	}
 
 	fmt.Println()
+	
+	// Example 7: Test different processors (these would work with different receiver configurations)
+	fmt.Println("Example 7: Testing different payload types for various processors")
+	fmt.Println("------------------------------------------------------------")
+	
+	// Test payload for Hello World processor
+	fmt.Println("Testing Hello World processor (ignores payload):")
+	response7a, err := server.RoundTripPost("Any payload")
+	if err != nil {
+		log.Printf("Hello World test failed: %v", err)
+	} else {
+		printResponse("Hello World", response7a)
+	}
+	
+	// Test payload for Transform processor
+	fmt.Println("Testing Transform processor (uppercase strings):")
+	transformPayload := map[string]interface{}{
+		"message": "hello world",
+		"greeting": "good morning",
+		"number": 42,
+	}
+	response7b, err := server.RoundTripPost(transformPayload)
+	if err != nil {
+		log.Printf("Transform test failed: %v", err)
+	} else {
+		printResponse("Transform", response7b)
+	}
+	
+	// Test payload for Validator processor
+	fmt.Println("Testing Validator processor (with missing fields):")
+	validatorPayload := map[string]interface{}{
+		"name": "John Doe",
+		// Missing "email" field - validator should catch this
+		"age": 30,
+	}
+	response7c, err := server.RoundTripPost(validatorPayload)
+	if err != nil {
+		log.Printf("Validator test failed: %v", err)
+	} else {
+		printResponse("Validator (invalid)", response7c)
+	}
+	
+	// Test payload for Validator processor with all required fields
+	fmt.Println("Testing Validator processor (with all required fields):")
+	validPayload := map[string]interface{}{
+		"name": "Jane Smith",
+		"email": "jane@example.com",
+		"age": 25,
+	}
+	response7d, err := server.RoundTripPost(validPayload)
+	if err != nil {
+		log.Printf("Valid payload test failed: %v", err)
+	} else {
+		printResponse("Validator (valid)", response7d)
+	}
+	
+	fmt.Println()
 	fmt.Println("All examples completed!")
+	fmt.Println()
+	fmt.Println("To test different processors, restart the receiver with:")
+	fmt.Println("  go run receiver.go hello      # Hello World processor")
+	fmt.Println("  go run receiver.go echo       # Echo processor (default)")
+	fmt.Println("  go run receiver.go timestamp  # Timestamp processor")
+	fmt.Println("  go run receiver.go counter    # Counter processor")
+	fmt.Println("  go run receiver.go advanced   # Advanced Context processor")
+	fmt.Println("  go run receiver.go transform  # Transform processor")
+	fmt.Println("  go run receiver.go validator  # Validator processor")
+	fmt.Println("  go run receiver.go chain      # Chain processor")
 }
 
 // result holds the result of a concurrent request
