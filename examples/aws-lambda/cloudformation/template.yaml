@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Post2Post AWS Lambda Receiver with IAM Role Assumption
+
+Parameters:
+  FunctionName:
+    Type: String
+    Default: post2post-receiver
+    Description: Name of the Lambda function
+  
+  TailscaleAuthKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Tailscale auth key for secure networking (optional)
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 128
+    Runtime: provided.al2023
+    Architectures:
+      - x86_64
+
+Resources:
+  # Lambda function
+  Post2PostReceiverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Ref FunctionName
+      CodeUri: ../bootstrap.zip
+      Handler: bootstrap
+      Environment:
+        Variables:
+          TAILSCALE_AUTH_KEY: !Ref TailscaleAuthKey
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - sts:AssumeRole
+              Resource: '*'  # Restrict to specific roles in production
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowCredentials: false
+          AllowOrigins:
+            - "*"
+          AllowMethods:
+            - POST
+          AllowHeaders:
+            - date
+            - keep-alive
+            - content-type
+          ExposeHeaders:
+            - date
+            - keep-alive
+          MaxAge: 86400
+
+Outputs:
+  Post2PostReceiverUrl:
+    Description: "Lambda Function URL"
+    Value: !GetAtt Post2PostReceiverFunctionUrl.FunctionUrl
+    Export:
+      Name: !Sub "${AWS::StackName}-FunctionUrl"
+  
+  Post2PostReceiverArn:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt Post2PostReceiverFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-FunctionArn"
