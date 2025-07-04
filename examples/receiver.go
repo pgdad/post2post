@@ -35,9 +35,9 @@ func main() {
 	http.HandleFunc("/webhook", webhookHandler)
 	http.HandleFunc("/", rootHandler)
 
-	port := ":8080"
+	port := ":8081"
 	fmt.Printf("Receiving server starting on port %s\n", port)
-	fmt.Println("Send POST requests to http://localhost:8080/webhook")
+	fmt.Println("Send POST requests to http://localhost:8081/webhook")
 	log.Fatal(http.ListenAndServe(port, nil))
 }
 

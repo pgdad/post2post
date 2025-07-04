@@ -8,7 +8,7 @@ This directory contains example programs demonstrating how to use the post2post 
 
 A standalone Go program that acts as the receiving web server. This server:
 
-- Listens on port 8080 at `/webhook` endpoint
+- Listens on port 8081 at `/webhook` endpoint
 - Receives POST requests with JSON data
 - Extracts the callback URL from the request
 - Processes the data and adds a timestamp field
@@ -58,8 +58,8 @@ go run receiver.go
 
 You should see:
 ```
-Receiving server starting on port :8080
-Send POST requests to http://localhost:8080/webhook
+Receiving server starting on port :8081
+Send POST requests to http://localhost:8081/webhook
 ```
 
 ### Step 2: Run the Client
@@ -76,7 +76,7 @@ The client will demonstrate various round trip scenarios and display the results
 ## Example Flow
 
 1. **Client starts** its own web server (random port)
-2. **Client posts** JSON data to receiver at `http://localhost:8080/webhook`
+2. **Client posts** JSON data to receiver at `http://localhost:8081/webhook`
 3. **Receiver processes** the data and adds timestamp
 4. **Receiver posts back** enhanced data to client's `/roundtrip` endpoint
 5. **Client receives** the response and displays results
@@ -135,7 +135,7 @@ You can modify `client.go` to:
 
 ### Common Issues
 
-1. **Port already in use**: Change the port in receiver.go if 8080 is occupied
+1. **Port already in use**: Change the port in receiver.go if 8081 is occupied
 2. **Connection refused**: Make sure the receiver is running before starting the client
 3. **Timeout errors**: Increase timeout values if processing takes longer
 4. **JSON parsing errors**: Ensure payload structures are JSON-serializable

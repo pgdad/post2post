@@ -15,7 +15,7 @@ func main() {
 	// Create server with configuration
 	server := post2post.NewServer().
 		WithInterface("127.0.0.1").                         // Listen on localhost
-		WithPostURL("http://localhost:8080/webhook").       // Receiver server endpoint
+		WithPostURL("http://localhost:8081/webhook").       // Receiver server endpoint
 		WithTimeout(10 * time.Second)                       // 10 second timeout
 
 	// Start the server
