@@ -197,6 +197,23 @@ func getOAuthToken(clientID, clientSecret string) (*OAuthTokenResponse, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		// Provide specific guidance for OAuth scope errors
+		if resp.StatusCode == 400 || resp.StatusCode == 403 {
+			if strings.Contains(string(body), "scope") || strings.Contains(string(body), "grant") {
+				return nil, fmt.Errorf(`OAuth token request failed: %s
+
+COMMON ISSUE: OAuth client missing 'devices' scope
+To fix this issue:
+
+1. Go to Tailscale Admin Console > Settings > OAuth
+2. Create a new OAuth client or edit existing one
+3. ✅ ENSURE 'devices' scope is selected
+4. Add required tags (e.g., tag:ephemeral-device)
+5. Update your environment variables with new credentials
+
+📖 See OAUTH_TROUBLESHOOTING.md for detailed instructions`, string(body))
+			}
+		}
 		return nil, fmt.Errorf("OAuth token request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
