@@ -25,6 +25,7 @@ type Server struct {
 	client          *http.Client
 	roundTripChans  map[string]chan *RoundTripResponse
 	defaultTimeout  time.Duration
+	processor       PayloadProcessor
 }
 
 // PostData represents the JSON payload structure
@@ -42,6 +43,24 @@ type RoundTripResponse struct {
 	Error     string      `json:"error,omitempty"`
 	Timeout   bool        `json:"timeout"`
 	RequestID string      `json:"request_id,omitempty"`
+}
+
+// PayloadProcessor defines the interface for processing incoming payloads
+type PayloadProcessor interface {
+	Process(payload interface{}, requestID string) (interface{}, error)
+}
+
+// ProcessorContext provides context information for payload processing
+type ProcessorContext struct {
+	RequestID   string
+	URL         string
+	TailnetKey  string
+	ReceivedAt  time.Time
+}
+
+// AdvancedPayloadProcessor defines an interface for processors that need access to context
+type AdvancedPayloadProcessor interface {
+	ProcessWithContext(payload interface{}, context ProcessorContext) (interface{}, error)
 }
 
 // NewServer creates a new server instance with default settings
@@ -96,6 +115,15 @@ func (s *Server) WithTimeout(timeout time.Duration) *Server {
 	return s
 }
 
+// WithProcessor sets a custom payload processor
+func (s *Server) WithProcessor(processor PayloadProcessor) *Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.processor = processor
+	return s
+}
+
 // Start starts the server
 func (s *Server) Start() error {
 	s.mu.Lock()
@@ -117,6 +145,7 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.defaultHandler)
 	mux.HandleFunc("/roundtrip", s.roundTripHandler)
+	mux.HandleFunc("/webhook", s.webhookHandler)
 	
 	s.server = &http.Server{
 		Handler: mux,
@@ -470,6 +499,102 @@ func (s *Server) roundTripHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		// Channel might be closed or full
 		w.WriteHeader(http.StatusGone)
+	}
+}
+
+// webhookHandler handles incoming webhook requests with configurable processing
+func (s *Server) webhookHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	
+	var requestData PostData
+	err = json.Unmarshal(body, &requestData)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	
+	// Process the payload using the configured processor
+	var processedPayload interface{}
+	s.mu.RLock()
+	processor := s.processor
+	s.mu.RUnlock()
+	
+	if processor != nil {
+		// Check if processor supports advanced context
+		if advancedProcessor, ok := processor.(AdvancedPayloadProcessor); ok {
+			context := ProcessorContext{
+				RequestID:  requestData.RequestID,
+				URL:        requestData.URL,
+				TailnetKey: requestData.TailnetKey,
+				ReceivedAt: time.Now(),
+			}
+			processedPayload, err = advancedProcessor.ProcessWithContext(requestData.Payload, context)
+		} else {
+			processedPayload, err = processor.Process(requestData.Payload, requestData.RequestID)
+		}
+		
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf("Processing error: %v", err)))
+			return
+		}
+	} else {
+		// Default processing - just echo back the payload
+		processedPayload = requestData.Payload
+	}
+	
+	// Acknowledge the request
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status": "received", "message": "Processing request"}`))
+	
+	// Post back the processed response if callback URL is provided
+	if requestData.URL != "" {
+		go s.postProcessedResponse(requestData.URL, requestData.RequestID, processedPayload, requestData.TailnetKey)
+	}
+}
+
+// postProcessedResponse posts the processed response back to the callback URL
+func (s *Server) postProcessedResponse(callbackURL, requestID string, payload interface{}, tailnetKey string) {
+	// Add a small delay to simulate processing time
+	time.Sleep(100 * time.Millisecond)
+	
+	responseData := map[string]interface{}{
+		"request_id": requestID,
+		"payload":    payload,
+	}
+	
+	// Include tailnet_key if it was provided
+	if tailnetKey != "" {
+		responseData["tailnet_key"] = tailnetKey
+	}
+	
+	responseJSON, err := json.Marshal(responseData)
+	if err != nil {
+		return
+	}
+	
+	// Use appropriate HTTP client based on tailnet_key
+	if tailnetKey != "" {
+		s.postWithOptionalTailscale(callbackURL, responseJSON, tailnetKey)
+	} else {
+		s.mu.RLock()
+		client := s.client
+		s.mu.RUnlock()
+		
+		resp, err := client.Post(callbackURL, "application/json", bytes.NewBuffer(responseJSON))
+		if err == nil {
+			resp.Body.Close()
+		}
 	}
 }
 

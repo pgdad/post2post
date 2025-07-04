@@ -190,6 +190,139 @@ Example external service response format:
 }
 ```
 
+## Configurable Payload Processing
+
+The post2post library supports configurable payload processors that allow you to define custom logic for processing incoming webhook requests. This enables different implementations for different purposes.
+
+### Processor Interface
+
+```go
+// Basic processor interface
+type PayloadProcessor interface {
+    Process(payload interface{}, requestID string) (interface{}, error)
+}
+
+// Advanced processor interface with context
+type AdvancedPayloadProcessor interface {
+    ProcessWithContext(payload interface{}, context ProcessorContext) (interface{}, error)
+}
+```
+
+### Built-in Processors
+
+The library includes several ready-to-use processors:
+
+#### HelloWorldProcessor
+Always returns a "Hello World" message, ignoring the input payload.
+
+```go
+server := post2post.NewServer().
+    WithProcessor(&post2post.HelloWorldProcessor{})
+```
+
+#### EchoProcessor  
+Returns the original payload with additional metadata like timestamps and processing info.
+
+```go
+server := post2post.NewServer().
+    WithProcessor(&post2post.EchoProcessor{})
+```
+
+#### TimestampProcessor
+Adds detailed timestamp information to any payload.
+
+```go
+server := post2post.NewServer().
+    WithProcessor(&post2post.TimestampProcessor{})
+```
+
+#### CounterProcessor
+Maintains a counter and includes the count in each response.
+
+```go
+server := post2post.NewServer().
+    WithProcessor(post2post.NewCounterProcessor())
+```
+
+#### TransformProcessor
+Transforms string payloads to uppercase and handles nested string transformations.
+
+```go
+server := post2post.NewServer().
+    WithProcessor(&post2post.TransformProcessor{})
+```
+
+#### ValidatorProcessor
+Validates that required fields are present in the payload.
+
+```go
+server := post2post.NewServer().
+    WithProcessor(post2post.NewValidatorProcessor([]string{"name", "email"}))
+```
+
+#### AdvancedContextProcessor
+Provides detailed context information including processing times and Tailscale integration.
+
+```go
+server := post2post.NewServer().
+    WithProcessor(post2post.NewAdvancedContextProcessor("my-service"))
+```
+
+#### ChainProcessor
+Chains multiple processors together for complex processing pipelines.
+
+```go
+server := post2post.NewServer().
+    WithProcessor(post2post.NewChainProcessor(
+        &post2post.TimestampProcessor{},
+        &post2post.TransformProcessor{},
+        &post2post.EchoProcessor{},
+    ))
+```
+
+### Creating Custom Processors
+
+You can create custom processors by implementing the `PayloadProcessor` interface:
+
+```go
+type CustomProcessor struct {
+    Config string
+}
+
+func (c *CustomProcessor) Process(payload interface{}, requestID string) (interface{}, error) {
+    // Your custom processing logic here
+    return map[string]interface{}{
+        "custom_result": "processed",
+        "config": c.Config,
+        "original": payload,
+        "request_id": requestID,
+    }, nil
+}
+
+// Use the custom processor
+server := post2post.NewServer().
+    WithProcessor(&CustomProcessor{Config: "my-config"})
+```
+
+For processors that need additional context (like callback URL, Tailscale keys, timestamps), implement the `AdvancedPayloadProcessor` interface:
+
+```go
+func (c *CustomProcessor) ProcessWithContext(payload interface{}, context ProcessorContext) (interface{}, error) {
+    // Access context.RequestID, context.URL, context.TailnetKey, context.ReceivedAt
+    return processedResult, nil
+}
+```
+
+### Webhook Endpoint
+
+When a processor is configured, the server automatically provides a `/webhook` endpoint that:
+
+1. Receives POST requests with JSON payload
+2. Processes the payload using the configured processor
+3. Posts the processed result back to the callback URL (if provided)
+
+The server supports both processor interfaces and automatically detects which one to use.
+
 ## Tailscale Integration
 
 The post2post library includes optional Tailscale integration for secure networking over private Tailscale networks.

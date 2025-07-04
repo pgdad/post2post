@@ -854,3 +854,341 @@ func TestPostWithOptionalTailscale(t *testing.T) {
 		t.Errorf("Error should mention Tailscale client creation, got: %v", err)
 	}
 }
+
+func TestServerWithProcessor(t *testing.T) {
+	processor := &HelloWorldProcessor{}
+	server := NewServer().WithProcessor(processor)
+	
+	// Access the processor field to verify it was set
+	server.mu.RLock()
+	setProcessor := server.processor
+	server.mu.RUnlock()
+	
+	if setProcessor != processor {
+		t.Error("WithProcessor() did not set the processor correctly")
+	}
+}
+
+func TestWebhookHandlerWithoutProcessor(t *testing.T) {
+	server := NewServer()
+	
+	err := server.Start()
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer server.Stop()
+	
+	// Test POST to webhook endpoint without processor (should echo)
+	testPayload := map[string]interface{}{
+		"message": "test webhook",
+		"data":    "some data",
+	}
+	
+	postData := PostData{
+		URL:       fmt.Sprintf("%s/roundtrip", server.GetURL()),
+		Payload:   testPayload,
+		RequestID: "test_req_123",
+	}
+	
+	jsonData, _ := json.Marshal(postData)
+	
+	url := fmt.Sprintf("http://%s:%d/webhook", server.GetInterface(), server.GetPort())
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatalf("Webhook POST failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Webhook response status = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+}
+
+func TestWebhookHandlerWithHelloWorldProcessor(t *testing.T) {
+	processor := &HelloWorldProcessor{}
+	server := NewServer().WithProcessor(processor)
+	
+	err := server.Start()
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer server.Stop()
+	
+	// Create a test server to receive the processed response
+	var receivedResponse map[string]interface{}
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &receivedResponse)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer testServer.Close()
+	
+	// Test POST to webhook endpoint with Hello World processor
+	testPayload := map[string]interface{}{
+		"message": "original message",
+		"data":    42,
+	}
+	
+	postData := PostData{
+		URL:       testServer.URL,
+		Payload:   testPayload,
+		RequestID: "test_hello_123",
+	}
+	
+	jsonData, _ := json.Marshal(postData)
+	
+	url := fmt.Sprintf("http://%s:%d/webhook", server.GetInterface(), server.GetPort())
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatalf("Webhook POST failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Webhook response status = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	
+	// Wait a moment for the async response
+	time.Sleep(200 * time.Millisecond)
+	
+	// Verify the processed response
+	if receivedResponse["request_id"] != "test_hello_123" {
+		t.Errorf("Response request_id = %v, want test_hello_123", receivedResponse["request_id"])
+	}
+	
+	if payload, ok := receivedResponse["payload"].(map[string]interface{}); ok {
+		if payload["message"] != "Hello World" {
+			t.Errorf("Processed message = %v, want Hello World", payload["message"])
+		}
+	} else {
+		t.Error("Response payload is not a map")
+	}
+}
+
+func TestWebhookHandlerInvalidMethods(t *testing.T) {
+	server := NewServer()
+	
+	err := server.Start()
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer server.Stop()
+	
+	// Test GET request to webhook endpoint
+	url := fmt.Sprintf("http://%s:%d/webhook", server.GetInterface(), server.GetPort())
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("HTTP GET failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET /webhook status = %v, want %v", resp.StatusCode, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestHelloWorldProcessor(t *testing.T) {
+	processor := &HelloWorldProcessor{}
+	
+	result, err := processor.Process("any payload", "test_123")
+	if err != nil {
+		t.Fatalf("Process() failed: %v", err)
+	}
+	
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Result is not a map: %T", result)
+	}
+	
+	if resultMap["message"] != "Hello World" {
+		t.Errorf("Message = %v, want Hello World", resultMap["message"])
+	}
+	
+	if resultMap["request_id"] != "test_123" {
+		t.Errorf("Request ID = %v, want test_123", resultMap["request_id"])
+	}
+}
+
+func TestEchoProcessor(t *testing.T) {
+	processor := &EchoProcessor{}
+	
+	testPayload := map[string]interface{}{
+		"test": "data",
+		"num":  42,
+	}
+	
+	result, err := processor.Process(testPayload, "echo_test")
+	if err != nil {
+		t.Fatalf("Process() failed: %v", err)
+	}
+	
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Result is not a map: %T", result)
+	}
+	
+	if resultMap["processor"] != "echo" {
+		t.Errorf("Processor = %v, want echo", resultMap["processor"])
+	}
+	
+	originalPayload := resultMap["original_payload"].(map[string]interface{})
+	if originalPayload["test"] != "data" {
+		t.Errorf("Original payload test = %v, want data", originalPayload["test"])
+	}
+}
+
+func TestCounterProcessor(t *testing.T) {
+	processor := NewCounterProcessor()
+	
+	// Test multiple calls to verify counter increments
+	for i := 1; i <= 3; i++ {
+		result, err := processor.Process("test", fmt.Sprintf("req_%d", i))
+		if err != nil {
+			t.Fatalf("Process() call %d failed: %v", i, err)
+		}
+		
+		resultMap := result.(map[string]interface{})
+		count := int(resultMap["count"].(int))
+		if count != i {
+			t.Errorf("Call %d: count = %v, want %d", i, count, i)
+		}
+	}
+}
+
+func TestAdvancedContextProcessor(t *testing.T) {
+	processor := NewAdvancedContextProcessor("test-service")
+	
+	context := ProcessorContext{
+		RequestID:  "ctx_test_123",
+		URL:        "http://test.example.com/callback",
+		TailnetKey: "test-tailnet-key",
+		ReceivedAt: time.Now(),
+	}
+	
+	result, err := processor.ProcessWithContext("test payload", context)
+	if err != nil {
+		t.Fatalf("ProcessWithContext() failed: %v", err)
+	}
+	
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Result is not a map: %T", result)
+	}
+	
+	if resultMap["service_name"] != "test-service" {
+		t.Errorf("Service name = %v, want test-service", resultMap["service_name"])
+	}
+	
+	contextMap := resultMap["context"].(map[string]interface{})
+	if contextMap["request_id"] != "ctx_test_123" {
+		t.Errorf("Context request_id = %v, want ctx_test_123", contextMap["request_id"])
+	}
+	
+	// Verify Tailscale info is present
+	tailscaleMap := resultMap["tailscale"].(map[string]interface{})
+	if tailscaleMap["enabled"] != true {
+		t.Errorf("Tailscale enabled = %v, want true", tailscaleMap["enabled"])
+	}
+}
+
+func TestTransformProcessor(t *testing.T) {
+	processor := &TransformProcessor{}
+	
+	// Test string transformation
+	result1, err := processor.Process("hello world", "transform_test")
+	if err != nil {
+		t.Fatalf("Process() with string failed: %v", err)
+	}
+	
+	resultMap1 := result1.(map[string]interface{})
+	if resultMap1["transformed"] != "HELLO WORLD" {
+		t.Errorf("Transformed string = %v, want HELLO WORLD", resultMap1["transformed"])
+	}
+	
+	// Test map transformation
+	testMap := map[string]interface{}{
+		"message": "hello",
+		"greeting": "good morning",
+		"number": 42,
+	}
+	
+	result2, err := processor.Process(testMap, "transform_test")
+	if err != nil {
+		t.Fatalf("Process() with map failed: %v", err)
+	}
+	
+	resultMap2 := result2.(map[string]interface{})
+	transformedMap := resultMap2["transformed"].(map[string]interface{})
+	if transformedMap["message"] != "HELLO" {
+		t.Errorf("Transformed message = %v, want HELLO", transformedMap["message"])
+	}
+	if transformedMap["number"] != 42 {
+		t.Errorf("Transformed number = %v, want 42", transformedMap["number"])
+	}
+}
+
+func TestValidatorProcessor(t *testing.T) {
+	processor := NewValidatorProcessor([]string{"name", "email"})
+	
+	// Test valid payload
+	validPayload := map[string]interface{}{
+		"name":  "John Doe",
+		"email": "john@example.com",
+		"age":   30,
+	}
+	
+	result1, err := processor.Process(validPayload, "valid_test")
+	if err != nil {
+		t.Fatalf("Process() with valid payload failed: %v", err)
+	}
+	
+	resultMap1 := result1.(map[string]interface{})
+	validation1 := resultMap1["validation"].(map[string]interface{})
+	if validation1["valid"] != true {
+		t.Errorf("Valid payload validation = %v, want true", validation1["valid"])
+	}
+	
+	// Test invalid payload
+	invalidPayload := map[string]interface{}{
+		"name": "Jane Doe",
+		// Missing email
+		"age": 25,
+	}
+	
+	result2, err := processor.Process(invalidPayload, "invalid_test")
+	if err != nil {
+		t.Fatalf("Process() with invalid payload failed: %v", err)
+	}
+	
+	resultMap2 := result2.(map[string]interface{})
+	validation2 := resultMap2["validation"].(map[string]interface{})
+	if validation2["valid"] != false {
+		t.Errorf("Invalid payload validation = %v, want false", validation2["valid"])
+	}
+}
+
+func TestChainProcessor(t *testing.T) {
+	// Create a chain of processors
+	processor := NewChainProcessor(
+		&TimestampProcessor{},
+		&EchoProcessor{},
+	)
+	
+	result, err := processor.Process("test chain", "chain_test")
+	if err != nil {
+		t.Fatalf("Process() chain failed: %v", err)
+	}
+	
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Chain result is not a map: %T", result)
+	}
+	
+	if resultMap["processor"] != "chain" {
+		t.Errorf("Chain processor = %v, want chain", resultMap["processor"])
+	}
+	
+	if resultMap["chain_length"] != 2 {
+		t.Errorf("Chain length = %v, want 2", resultMap["chain_length"])
+	}
+}
