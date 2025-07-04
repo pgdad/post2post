@@ -1,6 +1,6 @@
 # post2post
 
-A simple Go library for string transformations and utilities.
+A simple Go library for starting and managing local web servers with configurable network options.
 
 ## Installation
 
@@ -15,42 +15,124 @@ package main
 
 import (
     "fmt"
-    "strings"
+    "log"
     "github.com/pgdad/post2post"
 )
 
 func main() {
-    // Transform a string using a custom function
-    result := post2post.Transform("hello", strings.ToUpper)
-    fmt.Println(result) // Output: HELLO
+    // Create a server with default settings (TCP4, random port, all interfaces)
+    server := post2post.NewServer()
     
-    // Reverse a string
-    reversed := post2post.Reverse("hello")
-    fmt.Println(reversed) // Output: olleh
+    // Start the server
+    err := server.Start()
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer server.Stop()
     
-    // Convert to title case
-    title := post2post.ToTitle("hello world")
-    fmt.Println(title) // Output: Hello World
+    // Get server information
+    fmt.Printf("Server listening at: %s\n", server.GetURL())
     
-    // Greet someone
-    greeting := post2post.Greet("Alice")
-    fmt.Println(greeting) // Output: Hello, Alice!
+    // Create a server with custom settings and POST URL
+    customServer := post2post.NewServer().
+        WithNetwork("tcp6").
+        WithInterface("127.0.0.1").
+        WithPostURL("https://webhook.site/your-unique-url")
+    
+    err = customServer.Start()
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer customServer.Stop()
+    
+    fmt.Printf("Custom server listening at: %s\n", customServer.GetURL())
+    
+    // Post JSON data with server URL and custom payload
+    payload := map[string]interface{}{
+        "message": "Hello from server",
+        "timestamp": "2023-12-01T10:00:00Z",
+        "data": map[string]string{
+            "key1": "value1",
+            "key2": "value2",
+        },
+    }
+    
+    err = customServer.PostJSON(payload)
+    if err != nil {
+        log.Printf("Failed to post JSON: %v", err)
+    } else {
+        fmt.Println("JSON posted successfully!")
+    }
 }
 ```
 
 ## API
 
-### `Transform(input string, fn func(string) string) string`
-Applies a transformation function to a string.
+### Server Creation and Configuration
 
-### `Reverse(s string) string`
-Returns the reversed string (Unicode-safe).
+#### `NewServer() *Server`
+Creates a new server instance with default settings (TCP4, random port, all interfaces).
 
-### `ToTitle(s string) string`
-Converts string to title case.
+#### `(*Server) WithNetwork(network string) *Server`
+Sets the network type ("tcp4" or "tcp6"). Default is "tcp4".
 
-### `Greet(name string) string`
-Returns a greeting message.
+#### `(*Server) WithInterface(iface string) *Server`
+Sets the interface to listen on. Default is "" (all interfaces).
+
+#### `(*Server) WithPostURL(url string) *Server`
+Sets the URL for posting JSON data with server information and payload.
+
+### Server Lifecycle
+
+#### `(*Server) Start() error`
+Starts the server on the configured network and interface.
+
+#### `(*Server) Stop() error`
+Stops the server.
+
+#### `(*Server) IsRunning() bool`
+Returns whether the server is currently running.
+
+### Server Information
+
+#### `(*Server) GetPort() int`
+Returns the port the server is listening on.
+
+#### `(*Server) GetInterface() string`
+Returns the interface the server is listening on ("localhost" if not specified).
+
+#### `(*Server) GetNetwork() string`
+Returns the network type (tcp4 or tcp6).
+
+#### `(*Server) GetURL() string`
+Returns the full HTTP URL for the server (e.g., "http://localhost:8080").
+
+#### `(*Server) GetPostURL() string`
+Returns the configured POST URL for JSON data.
+
+### JSON Posting
+
+#### `(*Server) PostJSON(payload interface{}) error`
+Posts JSON data to the configured URL. The posted data includes:
+- `url`: The server's full URL
+- `payload`: The provided generic payload (can be any JSON-marshallable type)
+
+The payload can be any Go type that can be marshaled to JSON:
+- `map[string]interface{}`
+- Custom structs with JSON tags
+- Slices, arrays, primitive types, etc.
+
+Example posted JSON structure:
+```json
+{
+  "url": "http://localhost:8080",
+  "payload": {
+    "message": "Hello World",
+    "count": 42,
+    "active": true
+  }
+}
+```
 
 ## Testing
 
