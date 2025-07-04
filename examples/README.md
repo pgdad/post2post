@@ -80,6 +80,30 @@ A serverless implementation that demonstrates deploying the receiving side as an
 - Integration with existing AWS infrastructure
 - Tailscale-secured network communications
 
+### 4. `client_tailnet.go` & `receiver_tailnet.go` - Tailscale Integration
+
+A pair of specialized examples demonstrating secure peer-to-peer communication using Tailscale networking:
+
+**Client Features:**
+- Environment variable configuration for Tailscale auth keys
+- Random string generation for payload testing
+- Round-trip and fire-and-forget messaging via Tailscale
+- Concurrent request handling with Tailscale networking
+
+**Receiver Features:**
+- Tailscale tsnet integration for secure response posting
+- Human-readable timestamps in responses
+- HTTP fallback for reliability
+- Original payload echoing including random data
+
+**Key Benefits:**
+- Zero-config VPN networking between client and receiver
+- End-to-end encrypted communication
+- Works across NATs and firewalls
+- Secure credential handling via environment variables
+
+See [TAILSCALE.md](TAILSCALE.md) for detailed setup and usage instructions.
+
 ## Running the Examples
 
 ### Prerequisites
