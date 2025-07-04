@@ -1,6 +1,6 @@
 # Post2Post Examples
 
-This directory contains example programs demonstrating how to use the post2post library for round trip posting and configurable payload processing.
+This directory contains example programs demonstrating how to use the post2post library for round trip posting, configurable payload processing, and cloud deployment scenarios.
 
 ## Programs
 
@@ -54,6 +54,31 @@ A demonstration client that uses the post2post library to:
 - Fire-and-forget JSON posting
 - Tailscale integration demonstration
 - Payload processor testing (Hello World, Transform, Validator)
+
+### 3. `aws-lambda/` - AWS Lambda Receiver
+
+A serverless implementation that demonstrates deploying the receiving side as an AWS Lambda function with Lambda Function URL. This example:
+
+- Receives webhook requests via AWS Lambda Function URL
+- Assumes IAM roles specified in the payload using AWS STS
+- Returns complete AssumeRole credentials and metadata
+- Supports optional Tailscale integration for secure response posting
+- Includes Terraform, CloudFormation, and AWS CLI deployment options
+
+**Key Features:**
+- Serverless webhook processing
+- IAM role assumption with STS integration
+- Async response posting with error handling
+- Multiple deployment methods (Terraform/CloudFormation/CLI)
+- Production-ready with comprehensive error handling and logging
+- Cost-effective pay-per-request pricing model
+
+**Use Cases:**
+- Cross-account role assumption workflows
+- Serverless webhook processing
+- Secure credential vending
+- Integration with existing AWS infrastructure
+- Tailscale-secured network communications
 
 ## Running the Examples
 
