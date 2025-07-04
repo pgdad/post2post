@@ -83,7 +83,7 @@ func main() {
 	// The receiver will use it for the response posting
 	payload1["tailnet_key"] = tailnetKey
 	
-	response1, err := server.RoundTripPost(payload1)
+	response1, err := server.RoundTripPost(payload1, tailnetKey)
 	if err != nil {
 		log.Printf("Tailscale round-trip failed: %v", err)
 		fmt.Println("\nNote: Make sure the receiver is built and running with full Tailscale integration.")
@@ -114,7 +114,7 @@ func main() {
 				"tailnet_key": tailnetKey,
 			}
 
-			response, err := server.RoundTripPost(payload)
+			response, err := server.RoundTripPost(payload, tailnetKey)
 			results <- result{ID: id, Response: response, Error: err}
 		}(i)
 	}

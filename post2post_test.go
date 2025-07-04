@@ -490,7 +490,7 @@ func TestRoundTripPostSuccess(t *testing.T) {
 		"number": 123,
 	}
 	
-	response, err := server.RoundTripPost(payload)
+	response, err := server.RoundTripPost(payload, "")
 	if err != nil {
 		t.Fatalf("RoundTripPost() failed: %v", err)
 	}
@@ -543,7 +543,7 @@ func TestRoundTripPostTimeout(t *testing.T) {
 	// Test round trip post that should timeout
 	payload := map[string]string{"test": "timeout"}
 	
-	response, err := server.RoundTripPost(payload)
+	response, err := server.RoundTripPost(payload, "")
 	if err != nil {
 		t.Fatalf("RoundTripPost() failed: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestRoundTripPostWithCustomTimeout(t *testing.T) {
 	customTimeout := 100 * time.Millisecond
 	
 	start := time.Now()
-	response, err := server.RoundTripPostWithTimeout(payload, customTimeout)
+	response, err := server.RoundTripPostWithTimeout(payload, "", customTimeout)
 	elapsed := time.Since(start)
 	
 	if err != nil {
@@ -607,14 +607,14 @@ func TestRoundTripPostErrors(t *testing.T) {
 	server := NewServer()
 	
 	// Test without configuring post URL
-	response, err := server.RoundTripPost(map[string]string{"test": "data"})
+	response, err := server.RoundTripPost(map[string]string{"test": "data"}, "")
 	if err == nil || !strings.Contains(err.Error(), "post URL not configured") {
 		t.Errorf("Expected 'post URL not configured' error, got: %v", err)
 	}
 	
 	// Test without starting server
 	server.WithPostURL("http://example.com/webhook")
-	response, err = server.RoundTripPost(map[string]string{"test": "data"})
+	response, err = server.RoundTripPost(map[string]string{"test": "data"}, "")
 	if err == nil || !strings.Contains(err.Error(), "server is not running") {
 		t.Errorf("Expected 'server is not running' error, got: %v", err)
 	}
@@ -624,7 +624,7 @@ func TestRoundTripPostErrors(t *testing.T) {
 	server.Start()
 	defer server.Stop()
 	
-	response, err = server.RoundTripPost(map[string]string{"test": "data"})
+	response, err = server.RoundTripPost(map[string]string{"test": "data"}, "")
 	if err != nil {
 		t.Errorf("Expected response with error, got error: %v", err)
 	}
@@ -738,7 +738,7 @@ func TestConcurrentRoundTripPosts(t *testing.T) {
 				"test":    "concurrent",
 			}
 			
-			response, err := server.RoundTripPost(payload)
+			response, err := server.RoundTripPost(payload, "")
 			if err != nil {
 				errors <- err
 				return

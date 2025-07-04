@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -296,12 +297,12 @@ func (s *Server) PostJSONWithTailnet(payload interface{}, tailnetKey string) err
 }
 
 // RoundTripPost posts JSON data and waits for a response back to the server
-func (s *Server) RoundTripPost(payload interface{}) (*RoundTripResponse, error) {
-	return s.RoundTripPostWithTimeout(payload, s.defaultTimeout)
+func (s *Server) RoundTripPost(payload interface{}, tailnetKey string) (*RoundTripResponse, error) {
+	return s.RoundTripPostWithTimeout(payload, tailnetKey, s.defaultTimeout)
 }
 
 // RoundTripPostWithTimeout posts JSON data and waits for a response with custom timeout
-func (s *Server) RoundTripPostWithTimeout(payload interface{}, timeout time.Duration) (*RoundTripResponse, error) {
+func (s *Server) RoundTripPostWithTimeout(payload interface{}, tailnetKey string, timeout time.Duration) (*RoundTripResponse, error) {
 	s.mu.RLock()
 	postURL := s.postURL
 	serverURL := s.GetURL()
@@ -338,6 +339,7 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, timeout time.Dura
 		URL:       fmt.Sprintf("%s/roundtrip", serverURL),
 		Payload:   payload,
 		RequestID: requestID,
+		TailnetKey: tailnetKey,
 	}
 	
 	jsonData, err := json.Marshal(data)
@@ -349,6 +351,7 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, timeout time.Dura
 		}, nil
 	}
 	
+	log.Println("JSON DATA in REQ: %s", string(jsonData))
 	req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return &RoundTripResponse{

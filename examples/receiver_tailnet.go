@@ -121,10 +121,14 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-
+	log.Printf("Request Body: %s", body)
+	log.Printf("++++++++++++++++")
+	log.Printf("Request Data: %s", requestData)
+	log.Printf("TAILNET KEY: %s", requestData.TailnetKey)
 	log.Printf("Received Tailscale request from %s with ID: %s", requestData.URL, requestData.RequestID)
 	if requestData.TailnetKey != "" {
 		log.Printf("Tailscale integration enabled with key: %s...", requestData.TailnetKey[:min(10, len(requestData.TailnetKey))])
+		log.Printf("Tailscale integration enabled with key: %s...", requestData.TailnetKey)
 	} else {
 		log.Printf("No Tailscale key provided - will use regular HTTP")
 	}
