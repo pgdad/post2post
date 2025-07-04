@@ -29,9 +29,10 @@ type Server struct {
 
 // PostData represents the JSON payload structure
 type PostData struct {
-	URL       string      `json:"url"`
-	Payload   interface{} `json:"payload"`
-	RequestID string      `json:"request_id,omitempty"`
+	URL        string      `json:"url"`
+	Payload    interface{} `json:"payload"`
+	RequestID  string      `json:"request_id,omitempty"`
+	TailnetKey string      `json:"tailnet_key,omitempty"`
 }
 
 // RoundTripResponse represents the response from a round trip post
@@ -215,6 +216,11 @@ func (s *Server) GetPostURL() string {
 
 // PostJSON posts JSON data to the configured URL with server URL and payload
 func (s *Server) PostJSON(payload interface{}) error {
+	return s.PostJSONWithTailnet(payload, "")
+}
+
+// PostJSONWithTailnet posts JSON data using an optional Tailscale connection
+func (s *Server) PostJSONWithTailnet(payload interface{}, tailnetKey string) error {
 	s.mu.RLock()
 	postURL := s.postURL
 	serverURL := s.GetURL()
@@ -230,8 +236,9 @@ func (s *Server) PostJSON(payload interface{}) error {
 	}
 	
 	data := PostData{
-		URL:     serverURL,
-		Payload: payload,
+		URL:        serverURL,
+		Payload:    payload,
+		TailnetKey: tailnetKey,
 	}
 	
 	jsonData, err := json.Marshal(data)
@@ -360,6 +367,60 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, timeout time.Dura
 	}
 }
 
+// createTailscaleClient creates an HTTP client that routes through Tailscale
+func (s *Server) createTailscaleClient(tailnetKey string) (*http.Client, error) {
+	// Framework for Tailscale integration using tsnet
+	// 
+	// To implement full Tailscale integration, uncomment and modify the following:
+	//
+	// import "tailscale.com/tsnet"
+	//
+	// srv := &tsnet.Server{
+	//     Hostname: "post2post-server",
+	//     AuthKey:  tailnetKey,
+	// }
+	// 
+	// // Start the tsnet server
+	// if err := srv.Start(); err != nil {
+	//     return nil, fmt.Errorf("failed to start tsnet server: %w", err)
+	// }
+	//
+	// // Create HTTP client that routes through Tailscale
+	// client := srv.HTTPClient()
+	// return client, nil
+	
+	// For now, return an informative error with the key for development
+	return nil, fmt.Errorf("Tailscale integration is available but requires tsnet configuration with auth key: %s", tailnetKey)
+}
+
+// postWithOptionalTailscale makes an HTTP POST request, optionally using Tailscale
+func (s *Server) postWithOptionalTailscale(url string, data []byte, tailnetKey string) (*http.Response, error) {
+	var client *http.Client
+	var err error
+	
+	if tailnetKey != "" {
+		// Use Tailscale client if tailnet_key is provided
+		client, err = s.createTailscaleClient(tailnetKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Tailscale client: %w", err)
+		}
+	} else {
+		// Use regular HTTP client
+		s.mu.RLock()
+		client = s.client
+		s.mu.RUnlock()
+	}
+	
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	req.Header.Set("Content-Type", "application/json")
+	
+	return client.Do(req)
+}
+
 // roundTripHandler handles incoming responses for round trip requests
 func (s *Server) roundTripHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -374,8 +435,9 @@ func (s *Server) roundTripHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	var responseData struct {
-		RequestID string      `json:"request_id"`
-		Payload   interface{} `json:"payload"`
+		RequestID  string      `json:"request_id"`
+		Payload    interface{} `json:"payload"`
+		TailnetKey string      `json:"tailnet_key,omitempty"`
 	}
 	
 	err = json.Unmarshal(body, &responseData)

@@ -766,3 +766,91 @@ func TestConcurrentRoundTripPosts(t *testing.T) {
 		t.Errorf("Expected %d successful responses, got %d", numRequests, successCount)
 	}
 }
+
+func TestPostJSONWithTailnet(t *testing.T) {
+	// Create a test server to receive the POST request
+	var receivedData PostData
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("Failed to read request body: %v", err)
+			return
+		}
+		
+		err = json.Unmarshal(body, &receivedData)
+		if err != nil {
+			t.Errorf("Failed to unmarshal JSON: %v", err)
+			return
+		}
+		
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer testServer.Close()
+	
+	// Create our server
+	server := NewServer().WithPostURL(testServer.URL)
+	
+	err := server.Start()
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer server.Stop()
+	
+	// Test posting JSON with tailnet key
+	payload := map[string]interface{}{
+		"message": "test with tailnet",
+		"data":    "some data",
+	}
+	
+	err = server.PostJSONWithTailnet(payload, "test-auth-key")
+	if err != nil {
+		t.Fatalf("PostJSONWithTailnet() failed: %v", err)
+	}
+	
+	// Verify the received data includes tailnet_key
+	if receivedData.TailnetKey != "test-auth-key" {
+		t.Errorf("TailnetKey = %v, want test-auth-key", receivedData.TailnetKey)
+	}
+	
+	if receivedData.URL != server.GetURL() {
+		t.Errorf("URL = %v, want %v", receivedData.URL, server.GetURL())
+	}
+}
+
+func TestTailscaleClientCreation(t *testing.T) {
+	server := NewServer()
+	
+	// Test that Tailscale client creation returns expected error
+	_, err := server.createTailscaleClient("test-key")
+	if err == nil {
+		t.Error("Expected error from createTailscaleClient, got nil")
+	}
+	
+	if !strings.Contains(err.Error(), "test-key") {
+		t.Errorf("Error should contain the auth key, got: %v", err)
+	}
+	
+	if !strings.Contains(err.Error(), "tsnet configuration") {
+		t.Errorf("Error should mention tsnet configuration, got: %v", err)
+	}
+}
+
+func TestPostWithOptionalTailscale(t *testing.T) {
+	server := NewServer()
+	
+	// Test with empty tailnet key (should use regular client but will fail due to invalid URL)
+	_, err := server.postWithOptionalTailscale("invalid-url", []byte("test"), "")
+	if err == nil {
+		t.Error("Expected error with invalid URL")
+	}
+	
+	// Test with tailnet key (should fail with Tailscale setup error)
+	_, err = server.postWithOptionalTailscale("http://example.com", []byte("test"), "auth-key")
+	if err == nil {
+		t.Error("Expected error from Tailscale client creation")
+	}
+	
+	if !strings.Contains(err.Error(), "failed to create Tailscale client") {
+		t.Errorf("Error should mention Tailscale client creation, got: %v", err)
+	}
+}

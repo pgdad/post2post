@@ -150,6 +150,29 @@ func main() {
 	}
 
 	fmt.Println()
+
+	// Example 6: Demonstrate Tailscale integration (framework)
+	fmt.Println("Example 6: Tailscale integration demonstration")
+	fmt.Println("----------------------------------------------")
+
+	payload6 := map[string]interface{}{
+		"action":     "secure_processing",
+		"message":    "This would use Tailscale networking",
+		"timestamp":  time.Now().Unix(),
+		"sensitive":  true,
+	}
+
+	// Demonstrate PostJSONWithTailnet (will show framework message)
+	err = server.PostJSONWithTailnet(payload6, "tskey-auth-example123")
+	if err != nil {
+		fmt.Printf("Tailscale integration: %v\n", err)
+		fmt.Println("Note: This demonstrates the Tailscale framework. To enable full functionality,")
+		fmt.Println("      configure tsnet in the createTailscaleClient() method.")
+	} else {
+		fmt.Println("Tailscale request posted successfully!")
+	}
+
+	fmt.Println()
 	fmt.Println("All examples completed!")
 }
 

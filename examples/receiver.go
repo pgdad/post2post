@@ -12,9 +12,10 @@ import (
 
 // RequestData represents the incoming request structure
 type RequestData struct {
-	URL       string      `json:"url"`
-	Payload   interface{} `json:"payload"`
-	RequestID string      `json:"request_id"`
+	URL        string      `json:"url"`
+	Payload    interface{} `json:"payload"`
+	RequestID  string      `json:"request_id"`
+	TailnetKey string      `json:"tailnet_key,omitempty"`
 }
 
 // ResponseData represents the response structure we send back
@@ -92,6 +93,9 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Received request from %s with ID: %s", requestData.URL, requestData.RequestID)
+	if requestData.TailnetKey != "" {
+		log.Printf("Request includes Tailscale key: %s", requestData.TailnetKey)
+	}
 	log.Printf("Original payload: %+v", requestData.Payload)
 
 	// Create enhanced payload with timestamp
@@ -106,6 +110,13 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 	responseData := ResponseData{
 		RequestID: requestData.RequestID,
 		Payload:   enhancedPayload,
+	}
+
+	// Include tailnet_key in response if it was provided in request
+	if requestData.TailnetKey != "" {
+		// Note: In a real implementation, you might want to validate or transform the key
+		log.Printf("Will respond using Tailscale network with key: %s", requestData.TailnetKey)
+		// The key would be included in the response for the client to use when posting back
 	}
 
 	// Marshal response to JSON

@@ -36,6 +36,7 @@ A demonstration client that uses the post2post library to:
 - Custom timeout configuration
 - Concurrent round trip requests
 - Fire-and-forget JSON posting
+- Tailscale integration demonstration
 
 ## Running the Examples
 
@@ -91,7 +92,8 @@ The client will demonstrate various round trip scenarios and display the results
     "message": "Hello from client",
     "data": {"key": "value"}
   },
-  "request_id": "req_1234567890"
+  "request_id": "req_1234567890",
+  "tailnet_key": "tskey-auth-xyz123..."
 }
 ```
 
@@ -111,6 +113,28 @@ The client will demonstrate various round trip scenarios and display the results
 }
 ```
 
+## Tailscale Integration
+
+Both examples include support for optional Tailscale networking:
+
+### Receiver Features
+- Detects `tailnet_key` in incoming requests
+- Logs Tailscale integration when present
+- Framework for routing responses through Tailscale networks
+
+### Client Features  
+- `PostJSONWithTailnet()` method for Tailscale-enabled requests
+- Demonstrates Tailscale framework integration
+- Shows how to include auth keys in requests
+
+### Enabling Full Tailscale Support
+
+To enable complete Tailscale functionality:
+
+1. Install the Tailscale tsnet package: `go get tailscale.com/tsnet`
+2. Configure the `createTailscaleClient()` method in post2post.go
+3. Provide valid Tailscale auth keys in your applications
+
 ## Customization
 
 ### Receiver Server
@@ -121,6 +145,7 @@ You can modify `receiver.go` to:
 - Modify the response payload structure
 - Add authentication or validation
 - Implement different response delays
+- Enable full Tailscale tsnet integration
 
 ### Client
 
@@ -130,6 +155,7 @@ You can modify `client.go` to:
 - Add error handling scenarios
 - Test with multiple receivers
 - Implement custom response processing
+- Test Tailscale networking with real auth keys
 
 ## Troubleshooting
 

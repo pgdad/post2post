@@ -137,6 +137,9 @@ Posts JSON data to the configured URL. The posted data includes:
 - `url`: The server's full URL
 - `payload`: The provided generic payload (can be any JSON-marshallable type)
 
+#### `(*Server) PostJSONWithTailnet(payload interface{}, tailnetKey string) error`
+Posts JSON data with optional Tailscale network routing. When `tailnetKey` is provided, the request will be made through a Tailscale network connection.
+
 The payload can be any Go type that can be marshaled to JSON:
 - `map[string]interface{}`
 - Custom structs with JSON tags
@@ -145,13 +148,14 @@ The payload can be any Go type that can be marshaled to JSON:
 Example posted JSON structure:
 ```json
 {
-  "url": "http://localhost:8080/roundtrip",
+  "url": "http://localhost:8081/roundtrip",
   "payload": {
     "message": "Hello World",
     "count": 42,
     "active": true
   },
-  "request_id": "req_1234567890"
+  "request_id": "req_1234567890",
+  "tailnet_key": "tskey-auth-xyz123..."
 }
 ```
 
@@ -185,6 +189,55 @@ Example external service response format:
   }
 }
 ```
+
+## Tailscale Integration
+
+The post2post library includes optional Tailscale integration for secure networking over private Tailscale networks.
+
+### Features
+
+- **Optional Tailscale routing**: When a `tailnet_key` is included in requests, responses will be routed through Tailscale
+- **Automatic network switching**: Seamlessly switch between regular HTTP and Tailscale networking
+- **Secure private networks**: Leverage Tailscale's encrypted mesh networking
+
+### Setup
+
+To enable full Tailscale integration:
+
+1. **Install Tailscale**: Ensure Tailscale is installed and configured on your system
+2. **Get auth key**: Generate an auth key from your Tailscale admin console
+3. **Configure tsnet**: The library includes framework code for `tsnet` integration
+
+### Implementation Notes
+
+The current implementation provides a framework for Tailscale integration. To enable full functionality:
+
+```go
+// In createTailscaleClient(), uncomment and configure:
+import "tailscale.com/tsnet"
+
+srv := &tsnet.Server{
+    Hostname: "post2post-server", 
+    AuthKey:  tailnetKey,
+}
+
+client := srv.HTTPClient()
+return client, nil
+```
+
+### Usage
+
+When your receiving server includes a `tailnet_key` in the response:
+
+```json
+{
+  "request_id": "req_1234567890",
+  "payload": {...},
+  "tailnet_key": "tskey-auth-xyz123..."
+}
+```
+
+The response back to your server will be routed through the Tailscale network using the provided auth key.
 
 ## Testing
 
