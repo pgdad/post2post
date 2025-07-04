@@ -32,7 +32,7 @@ go vet ./...             # Run static analysis
 This is a simple Go library with a flat structure:
 - `post2post.go` - Main library code with exported functions
 - `post2post_test.go` - Test suite
-- `go.mod` - Go module definition
+- `go.mod` - Go module definition (github.com/pgdad/post2post)
 - `README.md` - Documentation
 
 ### Key Functions

@@ -5,7 +5,7 @@ A simple Go library for string transformations and utilities.
 ## Installation
 
 ```bash
-go get github.com/esa/post2post
+go get github.com/pgdad/post2post
 ```
 
 ## Usage
@@ -16,7 +16,7 @@ package main
 import (
     "fmt"
     "strings"
-    "github.com/esa/post2post"
+    "github.com/pgdad/post2post"
 )
 
 func main() {
