@@ -1,12 +1,14 @@
 package post2post
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -420,5 +422,347 @@ func TestServerPostJSONHTTPError(t *testing.T) {
 	err = server.PostJSON(map[string]string{"test": "data"})
 	if err == nil || !strings.Contains(err.Error(), "post request failed with status: 500") {
 		t.Errorf("Expected HTTP 500 error, got: %v", err)
+	}
+}
+
+func TestServerWithTimeout(t *testing.T) {
+	timeout := 10 * time.Second
+	server := NewServer().WithTimeout(timeout)
+	
+	// We can't directly access defaultTimeout, but we can test via round trip timeout
+	if server.defaultTimeout != timeout {
+		t.Errorf("WithTimeout() did not set timeout correctly")
+	}
+}
+
+func TestRoundTripPostSuccess(t *testing.T) {
+	// Create a test server that will respond back to our server
+	var receivedData PostData
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("Failed to read request body: %v", err)
+			return
+		}
+		
+		err = json.Unmarshal(body, &receivedData)
+		if err != nil {
+			t.Errorf("Failed to unmarshal JSON: %v", err)
+			return
+		}
+		
+		// Simulate responding back to the server
+		responsePayload := map[string]interface{}{
+			"status":  "processed",
+			"message": "Round trip successful",
+			"data":    receivedData.Payload,
+		}
+		
+		responseData := map[string]interface{}{
+			"request_id": receivedData.RequestID,
+			"payload":    responsePayload,
+		}
+		
+		responseJSON, _ := json.Marshal(responseData)
+		
+		// Post back to the server's /roundtrip endpoint
+		go func() {
+			time.Sleep(100 * time.Millisecond) // Small delay to simulate processing
+			http.Post(receivedData.URL, "application/json", bytes.NewBuffer(responseJSON))
+		}()
+		
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer testServer.Close()
+	
+	// Create our server
+	server := NewServer().WithPostURL(testServer.URL)
+	
+	err := server.Start()
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer server.Stop()
+	
+	// Test round trip post
+	payload := map[string]interface{}{
+		"test":   "round trip",
+		"number": 123,
+	}
+	
+	response, err := server.RoundTripPost(payload)
+	if err != nil {
+		t.Fatalf("RoundTripPost() failed: %v", err)
+	}
+	
+	if !response.Success {
+		t.Errorf("RoundTripPost() success = false, want true")
+	}
+	
+	if response.Timeout {
+		t.Errorf("RoundTripPost() timeout = true, want false")
+	}
+	
+	if response.Error != "" {
+		t.Errorf("RoundTripPost() error = %v, want empty", response.Error)
+	}
+	
+	// Verify the response payload
+	payloadMap, ok := response.Payload.(map[string]interface{})
+	if !ok {
+		t.Errorf("Response payload is not a map: %T", response.Payload)
+	} else {
+		if payloadMap["status"] != "processed" {
+			t.Errorf("Response status = %v, want processed", payloadMap["status"])
+		}
+		if payloadMap["message"] != "Round trip successful" {
+			t.Errorf("Response message = %v, want 'Round trip successful'", payloadMap["message"])
+		}
+	}
+}
+
+func TestRoundTripPostTimeout(t *testing.T) {
+	// Create a test server that doesn't respond back
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Just acknowledge the request but don't respond back
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer testServer.Close()
+	
+	// Create our server with short timeout
+	server := NewServer().
+		WithPostURL(testServer.URL).
+		WithTimeout(200 * time.Millisecond)
+	
+	err := server.Start()
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer server.Stop()
+	
+	// Test round trip post that should timeout
+	payload := map[string]string{"test": "timeout"}
+	
+	response, err := server.RoundTripPost(payload)
+	if err != nil {
+		t.Fatalf("RoundTripPost() failed: %v", err)
+	}
+	
+	if response.Success {
+		t.Errorf("RoundTripPost() success = true, want false")
+	}
+	
+	if !response.Timeout {
+		t.Errorf("RoundTripPost() timeout = false, want true")
+	}
+	
+	if !strings.Contains(response.Error, "timeout") {
+		t.Errorf("RoundTripPost() error = %v, want timeout error", response.Error)
+	}
+}
+
+func TestRoundTripPostWithCustomTimeout(t *testing.T) {
+	// Create a test server that doesn't respond back
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer testServer.Close()
+	
+	// Create our server
+	server := NewServer().WithPostURL(testServer.URL)
+	
+	err := server.Start()
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer server.Stop()
+	
+	// Test round trip post with custom short timeout
+	payload := map[string]string{"test": "custom timeout"}
+	customTimeout := 100 * time.Millisecond
+	
+	start := time.Now()
+	response, err := server.RoundTripPostWithTimeout(payload, customTimeout)
+	elapsed := time.Since(start)
+	
+	if err != nil {
+		t.Fatalf("RoundTripPostWithTimeout() failed: %v", err)
+	}
+	
+	if response.Success {
+		t.Errorf("RoundTripPostWithTimeout() success = true, want false")
+	}
+	
+	if !response.Timeout {
+		t.Errorf("RoundTripPostWithTimeout() timeout = false, want true")
+	}
+	
+	// Check that it actually timed out around the expected time
+	if elapsed < customTimeout || elapsed > customTimeout+100*time.Millisecond {
+		t.Errorf("RoundTripPostWithTimeout() elapsed = %v, expected around %v", elapsed, customTimeout)
+	}
+}
+
+func TestRoundTripPostErrors(t *testing.T) {
+	server := NewServer()
+	
+	// Test without configuring post URL
+	response, err := server.RoundTripPost(map[string]string{"test": "data"})
+	if err == nil || !strings.Contains(err.Error(), "post URL not configured") {
+		t.Errorf("Expected 'post URL not configured' error, got: %v", err)
+	}
+	
+	// Test without starting server
+	server.WithPostURL("http://example.com/webhook")
+	response, err = server.RoundTripPost(map[string]string{"test": "data"})
+	if err == nil || !strings.Contains(err.Error(), "server is not running") {
+		t.Errorf("Expected 'server is not running' error, got: %v", err)
+	}
+	
+	// Test with invalid URL
+	server.WithPostURL("invalid-url")
+	server.Start()
+	defer server.Stop()
+	
+	response, err = server.RoundTripPost(map[string]string{"test": "data"})
+	if err != nil {
+		t.Errorf("Expected response with error, got error: %v", err)
+	}
+	if response == nil || response.Success {
+		t.Error("Expected failed response due to invalid URL")
+	}
+}
+
+func TestRoundTripHandlerInvalidMethods(t *testing.T) {
+	server := NewServer()
+	
+	err := server.Start()
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer server.Stop()
+	
+	// Test GET request to roundtrip endpoint
+	url := fmt.Sprintf("http://%s:%d/roundtrip", server.GetInterface(), server.GetPort())
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("HTTP GET failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET /roundtrip status = %v, want %v", resp.StatusCode, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestRoundTripHandlerInvalidJSON(t *testing.T) {
+	server := NewServer()
+	
+	err := server.Start()
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer server.Stop()
+	
+	// Test POST with invalid JSON
+	url := fmt.Sprintf("http://%s:%d/roundtrip", server.GetInterface(), server.GetPort())
+	resp, err := http.Post(url, "application/json", strings.NewReader("invalid json"))
+	if err != nil {
+		t.Fatalf("HTTP POST failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /roundtrip with invalid JSON status = %v, want %v", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestConcurrentRoundTripPosts(t *testing.T) {
+	// Create a test server that responds back after different delays
+	var mu sync.Mutex
+	responses := make(map[string]bool)
+	
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var receivedData PostData
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("Failed to read request body: %v", err)
+			return
+		}
+		
+		err = json.Unmarshal(body, &receivedData)
+		if err != nil {
+			t.Errorf("Failed to unmarshal JSON: %v", err)
+			return
+		}
+		
+		mu.Lock()
+		responses[receivedData.RequestID] = true
+		mu.Unlock()
+		
+		// Respond back after a small delay
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			
+			responseData := map[string]interface{}{
+				"request_id": receivedData.RequestID,
+				"payload":    map[string]interface{}{"response": "ok", "id": receivedData.RequestID},
+			}
+			
+			responseJSON, _ := json.Marshal(responseData)
+			http.Post(receivedData.URL, "application/json", bytes.NewBuffer(responseJSON))
+		}()
+		
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer testServer.Close()
+	
+	// Create our server
+	server := NewServer().WithPostURL(testServer.URL)
+	
+	err := server.Start()
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer server.Stop()
+	
+	// Start multiple concurrent round trip posts
+	const numRequests = 5
+	results := make(chan *RoundTripResponse, numRequests)
+	errors := make(chan error, numRequests)
+	
+	for i := 0; i < numRequests; i++ {
+		go func(id int) {
+			payload := map[string]interface{}{
+				"request": id,
+				"test":    "concurrent",
+			}
+			
+			response, err := server.RoundTripPost(payload)
+			if err != nil {
+				errors <- err
+				return
+			}
+			results <- response
+		}(i)
+	}
+	
+	// Collect results
+	successCount := 0
+	for i := 0; i < numRequests; i++ {
+		select {
+		case response := <-results:
+			if response.Success {
+				successCount++
+			}
+		case err := <-errors:
+			t.Errorf("Concurrent round trip failed: %v", err)
+		case <-time.After(5 * time.Second):
+			t.Error("Timeout waiting for concurrent round trip responses")
+		}
+	}
+	
+	if successCount != numRequests {
+		t.Errorf("Expected %d successful responses, got %d", numRequests, successCount)
 	}
 }

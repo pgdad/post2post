@@ -2,8 +2,10 @@ package post2post
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -12,32 +14,46 @@ import (
 
 // Server represents a configurable web server
 type Server struct {
-	network   string
-	iface     string
-	port      int
-	listener  net.Listener
-	server    *http.Server
-	mu        sync.RWMutex
-	running   bool
-	postURL   string
-	client    *http.Client
+	network         string
+	iface           string
+	port            int
+	listener        net.Listener
+	server          *http.Server
+	mu              sync.RWMutex
+	running         bool
+	postURL         string
+	client          *http.Client
+	roundTripChans  map[string]chan *RoundTripResponse
+	defaultTimeout  time.Duration
 }
 
 // PostData represents the JSON payload structure
 type PostData struct {
-	URL     string      `json:"url"`
-	Payload interface{} `json:"payload"`
+	URL       string      `json:"url"`
+	Payload   interface{} `json:"payload"`
+	RequestID string      `json:"request_id,omitempty"`
+}
+
+// RoundTripResponse represents the response from a round trip post
+type RoundTripResponse struct {
+	Payload   interface{} `json:"payload"`
+	Success   bool        `json:"success"`
+	Error     string      `json:"error,omitempty"`
+	Timeout   bool        `json:"timeout"`
+	RequestID string      `json:"request_id,omitempty"`
 }
 
 // NewServer creates a new server instance with default settings
 func NewServer() *Server {
 	return &Server{
-		network: "tcp4",
-		iface:   "",
-		port:    0,
+		network:        "tcp4",
+		iface:          "",
+		port:           0,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		roundTripChans: make(map[string]chan *RoundTripResponse),
+		defaultTimeout: 30 * time.Second,
 	}
 }
 
@@ -70,6 +86,15 @@ func (s *Server) WithPostURL(url string) *Server {
 	return s
 }
 
+// WithTimeout sets the default timeout for round trip posts
+func (s *Server) WithTimeout(timeout time.Duration) *Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.defaultTimeout = timeout
+	return s
+}
+
 // Start starts the server
 func (s *Server) Start() error {
 	s.mu.Lock()
@@ -87,8 +112,13 @@ func (s *Server) Start() error {
 	}
 	
 	s.listener = listener
+	
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.defaultHandler)
+	mux.HandleFunc("/roundtrip", s.roundTripHandler)
+	
 	s.server = &http.Server{
-		Handler: http.HandlerFunc(s.defaultHandler),
+		Handler: mux,
 	}
 	
 	// Extract the actual port from the listener
@@ -227,6 +257,158 @@ func (s *Server) PostJSON(payload interface{}) error {
 	}
 	
 	return nil
+}
+
+// RoundTripPost posts JSON data and waits for a response back to the server
+func (s *Server) RoundTripPost(payload interface{}) (*RoundTripResponse, error) {
+	return s.RoundTripPostWithTimeout(payload, s.defaultTimeout)
+}
+
+// RoundTripPostWithTimeout posts JSON data and waits for a response with custom timeout
+func (s *Server) RoundTripPostWithTimeout(payload interface{}, timeout time.Duration) (*RoundTripResponse, error) {
+	s.mu.RLock()
+	postURL := s.postURL
+	serverURL := s.GetURL()
+	client := s.client
+	s.mu.RUnlock()
+	
+	if postURL == "" {
+		return nil, fmt.Errorf("post URL not configured")
+	}
+	
+	if !s.IsRunning() {
+		return nil, fmt.Errorf("server is not running")
+	}
+	
+	// Generate unique request ID
+	requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
+	
+	// Create response channel
+	responseChan := make(chan *RoundTripResponse, 1)
+	s.mu.Lock()
+	s.roundTripChans[requestID] = responseChan
+	s.mu.Unlock()
+	
+	// Cleanup function
+	defer func() {
+		s.mu.Lock()
+		delete(s.roundTripChans, requestID)
+		close(responseChan)
+		s.mu.Unlock()
+	}()
+	
+	// Prepare the data with request ID
+	data := PostData{
+		URL:       fmt.Sprintf("%s/roundtrip", serverURL),
+		Payload:   payload,
+		RequestID: requestID,
+	}
+	
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return &RoundTripResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to marshal JSON: %v", err),
+			Timeout: false,
+		}, nil
+	}
+	
+	req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return &RoundTripResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to create request: %v", err),
+			Timeout: false,
+		}, nil
+	}
+	
+	req.Header.Set("Content-Type", "application/json")
+	
+	// Send the request
+	resp, err := client.Do(req)
+	if err != nil {
+		return &RoundTripResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to post JSON: %v", err),
+			Timeout: false,
+		}, nil
+	}
+	resp.Body.Close()
+	
+	if resp.StatusCode >= 400 {
+		return &RoundTripResponse{
+			Success: false,
+			Error:   fmt.Sprintf("post request failed with status: %d", resp.StatusCode),
+			Timeout: false,
+		}, nil
+	}
+	
+	// Wait for response or timeout
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	
+	select {
+	case response := <-responseChan:
+		return response, nil
+	case <-ctx.Done():
+		return &RoundTripResponse{
+			Success:   false,
+			Error:     "timeout waiting for response",
+			Timeout:   true,
+			RequestID: requestID,
+		}, nil
+	}
+}
+
+// roundTripHandler handles incoming responses for round trip requests
+func (s *Server) roundTripHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	
+	var responseData struct {
+		RequestID string      `json:"request_id"`
+		Payload   interface{} `json:"payload"`
+	}
+	
+	err = json.Unmarshal(body, &responseData)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	
+	// Find the waiting channel
+	s.mu.RLock()
+	responseChan, exists := s.roundTripChans[responseData.RequestID]
+	s.mu.RUnlock()
+	
+	if !exists {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	
+	// Send response to waiting goroutine
+	response := &RoundTripResponse{
+		Payload:   responseData.Payload,
+		Success:   true,
+		RequestID: responseData.RequestID,
+	}
+	
+	select {
+	case responseChan <- response:
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Response received"))
+	default:
+		// Channel might be closed or full
+		w.WriteHeader(http.StatusGone)
+	}
 }
 
 // defaultHandler is a simple HTTP handler that returns server information

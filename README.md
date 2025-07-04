@@ -63,6 +63,23 @@ func main() {
     } else {
         fmt.Println("JSON posted successfully!")
     }
+    
+    // Round trip post: send data and wait for response
+    roundTripPayload := map[string]interface{}{
+        "action": "process_data",
+        "data":   []int{1, 2, 3, 4, 5},
+    }
+    
+    response, err := server.RoundTripPost(roundTripPayload)
+    if err != nil {
+        log.Printf("Round trip failed: %v", err)
+    } else if response.Success {
+        fmt.Printf("Round trip successful! Response: %+v\n", response.Payload)
+    } else if response.Timeout {
+        fmt.Println("Round trip timed out")
+    } else {
+        fmt.Printf("Round trip failed: %s\n", response.Error)
+    }
 }
 ```
 
@@ -81,6 +98,9 @@ Sets the interface to listen on. Default is "" (all interfaces).
 
 #### `(*Server) WithPostURL(url string) *Server`
 Sets the URL for posting JSON data with server information and payload.
+
+#### `(*Server) WithTimeout(timeout time.Duration) *Server`
+Sets the default timeout for round trip posts. Default is 30 seconds.
 
 ### Server Lifecycle
 
@@ -125,11 +145,43 @@ The payload can be any Go type that can be marshaled to JSON:
 Example posted JSON structure:
 ```json
 {
-  "url": "http://localhost:8080",
+  "url": "http://localhost:8080/roundtrip",
   "payload": {
     "message": "Hello World",
     "count": 42,
     "active": true
+  },
+  "request_id": "req_1234567890"
+}
+```
+
+### Round Trip Posting
+
+#### `(*Server) RoundTripPost(payload interface{}) (*RoundTripResponse, error)`
+Posts JSON data to the configured URL and waits for a response back to the server within the default timeout (30 seconds).
+
+#### `(*Server) RoundTripPostWithTimeout(payload interface{}, timeout time.Duration) (*RoundTripResponse, error)`
+Posts JSON data and waits for a response with a custom timeout.
+
+**Round Trip Process:**
+1. Posts data with unique request ID to configured URL
+2. Waits for external service to process and post response back to server's `/roundtrip` endpoint
+3. Returns response payload or timeout/error information
+
+**Response Structure:**
+- `Success`: boolean indicating if round trip completed successfully
+- `Payload`: the response data from the external service (if successful)
+- `Error`: error message (if failed)
+- `Timeout`: boolean indicating if the operation timed out
+- `RequestID`: unique identifier for the request
+
+Example external service response format:
+```json
+{
+  "request_id": "req_1234567890",
+  "payload": {
+    "status": "processed",
+    "result": "success"
   }
 }
 ```
