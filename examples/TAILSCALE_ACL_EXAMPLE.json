@@ -1,0 +1,54 @@
+{
+  "tagOwners": {
+    "tag:ephemeral-device": [],
+    "tag:ci": [],
+    "tag:automation": [],
+    "tag:post2post": []
+  },
+  "groups": {
+    "group:admin": ["user@example.com"],
+    "group:developers": ["dev1@example.com", "dev2@example.com"]
+  },
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["group:admin", "group:developers"],
+      "dst": ["*:*"]
+    },
+    {
+      "action": "accept",
+      "src": ["tag:ephemeral-device"],
+      "dst": ["*:22", "*:80", "*:443", "*:8080", "*:8082"]
+    },
+    {
+      "action": "accept",
+      "src": ["tag:ci"],
+      "dst": ["*:22", "*:80", "*:443", "*:8080", "*:8082"]
+    },
+    {
+      "action": "accept",
+      "src": ["tag:automation"],
+      "dst": ["*:*"]
+    },
+    {
+      "action": "accept",
+      "src": ["tag:post2post"],
+      "dst": ["*:8080", "*:8082", "*:443", "*:80"]
+    },
+    {
+      "action": "accept",
+      "src": ["*"],
+      "dst": ["tag:ephemeral-device:*", "tag:ci:*", "tag:automation:*", "tag:post2post:*"]
+    }
+  ],
+  "nodeAttrs": [
+    {
+      "target": ["tag:ephemeral-device"],
+      "attr": ["funnel"]
+    },
+    {
+      "target": ["tag:ci"],
+      "attr": ["funnel"]
+    }
+  ]
+}

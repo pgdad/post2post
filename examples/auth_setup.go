@@ -86,6 +86,21 @@ func main() {
 		fmt.Printf("Using tags: %v\n", tags)
 	}
 
+	// Validate tag format
+	for _, tag := range tags {
+		if !strings.HasPrefix(tag, "tag:") {
+			fmt.Printf("⚠️  Warning: Tag '%s' doesn't start with 'tag:' prefix\n", tag)
+		}
+	}
+	
+	fmt.Println()
+	fmt.Println("📋 Tag Configuration Requirements:")
+	fmt.Println("   1. Tags must be defined in ACL 'tagOwners' section")
+	fmt.Println("   2. OAuth client must have permission to use these tags")
+	fmt.Println("   3. Tags must use 'tag:' prefix")
+	fmt.Println("   4. Set tagOwners to empty array [] for OAuth client access")
+	fmt.Println("   📖 See TAILSCALE_SETUP_GUIDE.md for detailed instructions")
+
 	description := os.Getenv("TAILSCALE_KEY_DESCRIPTION")
 	if description == "" {
 		description = fmt.Sprintf("Ephemeral auth key generated at %s", time.Now().Format("2006-01-02 15:04:05"))
@@ -239,6 +254,30 @@ func createAuthKey(accessToken, tailnet string, tags []string, description strin
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		// Provide specific guidance for common tag-related errors
+		if resp.StatusCode == 422 || resp.StatusCode == 400 {
+			if strings.Contains(string(body), "invalid") && strings.Contains(string(body), "tag") {
+				return nil, fmt.Errorf(`auth key creation failed: %s
+
+COMMON ISSUE: Tags not properly configured in ACL
+To fix this issue:
+
+1. Go to Tailscale Admin Console > Access Controls
+2. Add your tags to the "tagOwners" section:
+   {
+     "tagOwners": {
+       "tag:ephemeral-device": [],
+       "tag:ci": [],
+       "tag:automation": []
+     }
+   }
+
+3. Ensure your OAuth client has permission to use these tags
+4. Tags must use the "tag:" prefix
+
+For detailed setup instructions, see TAILSCALE_SETUP_GUIDE.md`, resp.StatusCode, string(body))
+			}
+		}
 		return nil, fmt.Errorf("auth key creation failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
