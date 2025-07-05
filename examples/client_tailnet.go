@@ -15,10 +15,45 @@ func main() {
 	fmt.Println("Post2Post Tailscale Client Example")
 	fmt.Println("===================================")
 
-	// Get Tailscale auth key from environment variable
+	// Try to get Tailscale auth key from environment variable first
 	tailnetKey := os.Getenv("TAILSCALE_AUTH_KEY")
+	
+	// If no auth key provided, try to generate one using OAuth
 	if tailnetKey == "" {
-		log.Fatal("TAILSCALE_AUTH_KEY environment variable is required")
+		fmt.Println("No TAILSCALE_AUTH_KEY provided, attempting OAuth generation...")
+		
+		// Check if OAuth credentials are available
+		clientID := os.Getenv("TS_API_CLIENT_ID")
+		clientSecret := os.Getenv("TS_API_CLIENT_SECRET")
+		
+		if clientID != "" && clientSecret != "" {
+			fmt.Println("OAuth credentials found, generating ephemeral auth key...")
+			
+			// Create server instance to use OAuth method
+			tempServer := post2post.NewServer()
+			
+			// Get tags from environment or use default
+			tags := os.Getenv("TAILSCALE_TAGS")
+			if tags == "" {
+				tags = "tag:ephemeral-device"
+			}
+			
+			generatedKey, err := tempServer.GenerateTailnetKeyFromOAuth(
+				true,  // reusable
+				true,  // ephemeral  
+				false, // preauthorized
+				tags,  // tags
+			)
+			
+			if err != nil {
+				log.Fatalf("Failed to generate OAuth auth key: %v", err)
+			}
+			
+			tailnetKey = generatedKey
+			fmt.Printf("✅ Generated ephemeral auth key: %s...\n", tailnetKey[:min(10, len(tailnetKey))])
+		} else {
+			log.Fatal("Neither TAILSCALE_AUTH_KEY nor OAuth credentials (TS_API_CLIENT_ID, TS_API_CLIENT_SECRET) are available")
+		}
 	}
 
 	// Get receiver URL from environment variable or use default

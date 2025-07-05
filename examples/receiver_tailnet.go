@@ -7,8 +7,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
+	"github.com/pgdad/post2post"
 	"tailscale.com/tsnet"
 )
 
@@ -196,12 +198,47 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 
 // postResponseViaTailscale posts the response using Tailscale networking
 func postResponseViaTailscale(url string, data []byte, tailnetKey string) error {
+	var actualTailnetKey string
+	
 	if tailnetKey == "" {
-		return fmt.Errorf("no Tailscale key provided, cannot use Tailscale networking")
+		// Try to generate a key using OAuth if no key provided
+		log.Printf("No Tailscale key provided, attempting OAuth generation...")
+		
+		clientID := os.Getenv("TS_API_CLIENT_ID")
+		clientSecret := os.Getenv("TS_API_CLIENT_SECRET")
+		
+		if clientID != "" && clientSecret != "" {
+			// Create server instance to use OAuth method
+			tempServer := post2post.NewServer()
+			
+			// Get tags from environment or use default
+			tags := os.Getenv("TAILSCALE_TAGS")
+			if tags == "" {
+				tags = "tag:ephemeral-device"
+			}
+			
+			generatedKey, err := tempServer.GenerateTailnetKeyFromOAuth(
+				true,  // reusable
+				true,  // ephemeral
+				false, // preauthorized
+				tags,  // tags
+			)
+			
+			if err != nil {
+				return fmt.Errorf("failed to generate OAuth auth key: %w", err)
+			}
+			
+			actualTailnetKey = generatedKey
+			log.Printf("✅ Generated ephemeral auth key for response posting")
+		} else {
+			return fmt.Errorf("no Tailscale key provided and OAuth credentials not available")
+		}
+	} else {
+		actualTailnetKey = tailnetKey
 	}
 
 	// Create Tailscale HTTP client
-	client, err := createTailscaleClient(tailnetKey)
+	client, err := createTailscaleClient(actualTailnetKey)
 	if err != nil {
 		return fmt.Errorf("failed to create Tailscale client: %w", err)
 	}
