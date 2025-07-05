@@ -399,6 +399,53 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, tailnetKey string
 	}
 }
 
+func (s *Server) generateTailnetKeyFromOAuth(reusable bool, ephemeral bool, preauth bool, tags string) (string, err) {
+	clientID := os.Getenv("TS_API_CLIENT_ID")
+	clientSecret := os.Getenv("TS_API_CLIENT_SECRET")
+	if clientID == "" || clientSecret == "" {
+		log.Fatal("TS_API_CLIENT_ID and TS_API_CLIENT_SECRET must be set")
+	}
+
+	if *tags == "" {
+		log.Fatal("at least one tag must be specified")
+	}
+
+	baseURL := "https://api.tailscale.com"
+
+	credentials := clientcredentials.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		TokenURL:     baseURL + "/api/v2/oauth/token",
+	}
+
+	ctx := context.Background()
+	tsClient := tailscale.NewClient("-", nil)
+	tsClient.UserAgent = "tailscale-get-authkey"
+	tsClient.HTTPClient = credentials.Client(ctx)
+	tsClient.BaseURL = baseURL
+
+	caps := tailscale.KeyCapabilities{
+		Devices: tailscale.KeyDeviceCapabilities{
+			Create: tailscale.KeyDeviceCreateCapabilities{
+				Reusable:      *reusable,
+				Ephemeral:     *ephemeral,
+				Preauthorized: *preauth,
+				Tags:          strings.Split(*tags, ","),
+			},
+		},
+	}
+
+	authkey, _, err := tsClient.CreateKey(ctx, caps)
+	if err != nil {
+		log.Println(err.Error())
+		return nil, err
+	}
+
+	fmt.Println(authkey)
+
+	return authKey, nil
+}
+
 // createTailscaleClient creates an HTTP client that routes through Tailscale
 func (s *Server) createTailscaleClient(tailnetKey string) (*http.Client, error) {
 	// Framework for Tailscale integration using tsnet
