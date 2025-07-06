@@ -3,119 +3,118 @@
 ```mermaid
 classDiagram
     class Server {
-        -network: string
-        -iface: string
-        -port: int
-        -listener: net.Listener
-        -server: *http.Server
-        -mu: sync.RWMutex
-        -running: bool
-        -postURL: string
-        -client: *http.Client
-        -roundTripChans: map[string]chan *RoundTripResponse
-        -defaultTimeout: time.Duration
-        -processor: PayloadProcessor
+        -network string
+        -iface string
+        -port int
+        -listener net.Listener
+        -server http.Server
+        -mu sync.RWMutex
+        -running bool
+        -postURL string
+        -client http.Client
+        -roundTripChans map
+        -defaultTimeout time.Duration
+        -processor PayloadProcessor
         
-        +NewServer() *Server
-        +WithNetwork(network string) *Server
-        +WithInterface(iface string) *Server
-        +WithPostURL(url string) *Server
-        +WithTimeout(timeout time.Duration) *Server
-        +WithProcessor(processor PayloadProcessor) *Server
+        +NewServer() Server
+        +WithNetwork(network string) Server
+        +WithInterface(iface string) Server
+        +WithPostURL(url string) Server
+        +WithTimeout(timeout time.Duration) Server
+        +WithProcessor(processor PayloadProcessor) Server
         +Start() error
         +Stop() error
         +GetPort() int
         +GetInterface() string
         +IsRunning() bool
         +GetURL() string
-        +PostJSON(payload interface{}) error
-        +PostJSONWithTailnet(payload interface{}, tailnetKey string) error
-        +RoundTripPost(payload interface{}, tailnetKey string) (*RoundTripResponse, error)
-        +RoundTripPostWithTimeout(payload interface{}, tailnetKey string, timeout time.Duration) (*RoundTripResponse, error)
-        +GenerateTailnetKeyFromOAuth(reusable bool, ephemeral bool, preauth bool, tags string) (string, error)
-        -createTailscaleClient(tailnetKey string) (*http.Client, error)
-        -postWithOptionalTailscale(url string, data []byte, tailnetKey string) (*http.Response, error)
-        -roundTripHandler(w http.ResponseWriter, r *http.Request)
-        -webhookHandler(w http.ResponseWriter, r *http.Request)
-        -postProcessedResponse(callbackURL string, requestID string, payload interface{}, tailnetKey string)
-        -defaultHandler(w http.ResponseWriter, r *http.Request)
+        +PostJSON(payload interface) error
+        +PostJSONWithTailnet(payload interface, tailnetKey string) error
+        +RoundTripPost(payload interface, tailnetKey string) RoundTripResponse
+        +RoundTripPostWithTimeout(payload interface, tailnetKey string, timeout time.Duration) RoundTripResponse
+        +GenerateTailnetKeyFromOAuth(reusable bool, ephemeral bool, preauth bool, tags string) string
+        -createTailscaleClient(tailnetKey string) http.Client
+        -postWithOptionalTailscale(url string, data byte, tailnetKey string) http.Response
+        -roundTripHandler(w http.ResponseWriter, r http.Request)
+        -webhookHandler(w http.ResponseWriter, r http.Request)
+        -postProcessedResponse(callbackURL string, requestID string, payload interface, tailnetKey string)
+        -defaultHandler(w http.ResponseWriter, r http.Request)
     }
 
     class PayloadProcessor {
         <<interface>>
-        +Process(payload interface{}, requestID string) (interface{}, error)
+        +Process(payload interface, requestID string) interface
     }
 
     class AdvancedPayloadProcessor {
         <<interface>>
-        +ProcessWithContext(payload interface{}, context ProcessorContext) (interface{}, error)
+        +ProcessWithContext(payload interface, context ProcessorContext) interface
     }
 
     class ProcessorContext {
-        +RequestID: string
-        +URL: string
-        +TailnetKey: string
-        +ReceivedAt: time.Time
+        +RequestID string
+        +URL string
+        +TailnetKey string
+        +ReceivedAt time.Time
     }
 
     class PostData {
-        +URL: string
-        +Payload: interface{}
-        +RequestID: string
-        +TailnetKey: string
+        +URL string
+        +Payload interface
+        +RequestID string
+        +TailnetKey string
     }
 
     class RoundTripResponse {
-        +Payload: interface{}
-        +Success: bool
-        +Error: string
-        +Timeout: bool
-        +RequestID: string
+        +Payload interface
+        +Success bool
+        +Error string
+        +Timeout bool
+        +RequestID string
     }
 
-    %% Built-in Processors
     class HelloWorldProcessor {
-        +Process(payload interface{}, requestID string) (interface{}, error)
+        +Process(payload interface, requestID string) interface
     }
 
     class EchoProcessor {
-        +Process(payload interface{}, requestID string) (interface{}, error)
+        +Process(payload interface, requestID string) interface
     }
 
     class TimestampProcessor {
-        +Process(payload interface{}, requestID string) (interface{}, error)
+        +Process(payload interface, requestID string) interface
     }
 
     class CounterProcessor {
-        -count: int64
-        -mu: sync.Mutex
-        +Process(payload interface{}, requestID string) (interface{}, error)
+        -count int64
+        -mu sync.Mutex
+        +Process(payload interface, requestID string) interface
         +GetCount() int64
         +Reset()
     }
 
     class TransformProcessor {
-        -transformFunc: func(interface{}) interface{}
-        +NewTransformProcessor(func(interface{}) interface{}) *TransformProcessor
-        +Process(payload interface{}, requestID string) (interface{}, error)
+        -transformFunc function
+        +NewTransformProcessor(function) TransformProcessor
+        +Process(payload interface, requestID string) interface
     }
 
     class ValidatorProcessor {
-        -validateFunc: func(interface{}) error
-        +NewValidatorProcessor(func(interface{}) error) *ValidatorProcessor
-        +Process(payload interface{}, requestID string) (interface{}, error)
+        -validateFunc function
+        +NewValidatorProcessor(function) ValidatorProcessor
+        +Process(payload interface, requestID string) interface
     }
 
     class AdvancedContextProcessor {
-        -processFunc: func(interface{}, ProcessorContext) interface{}
-        +NewAdvancedContextProcessor(func(interface{}, ProcessorContext) interface{}) *AdvancedContextProcessor
-        +ProcessWithContext(payload interface{}, context ProcessorContext) (interface{}, error)
+        -processFunc function
+        +NewAdvancedContextProcessor(function) AdvancedContextProcessor
+        +ProcessWithContext(payload interface, context ProcessorContext) interface
     }
 
     class ChainProcessor {
-        -processors: []PayloadProcessor
-        +NewChainProcessor(processors ...PayloadProcessor) *ChainProcessor
-        +Process(payload interface{}, requestID string) (interface{}, error)
+        -processors PayloadProcessor[]
+        +NewChainProcessor(processors PayloadProcessor) ChainProcessor
+        +Process(payload interface, requestID string) interface
     }
 
     %% Relationships
