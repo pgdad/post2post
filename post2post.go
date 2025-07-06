@@ -405,6 +405,9 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, tailnetKey string
 }
 
 func (s *Server) GenerateTailnetKeyFromOAuth(reusable bool, ephemeral bool, preauth bool, tags string) (string, error) {
+	// Acknowledge the unstable API at package level
+	tailscale.I_Acknowledge_This_API_Is_Unstable = true
+	
 	clientID := os.Getenv("TS_API_CLIENT_ID")
 	clientSecret := os.Getenv("TS_API_CLIENT_SECRET")
 	if clientID == "" || clientSecret == "" {

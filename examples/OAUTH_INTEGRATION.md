@@ -12,6 +12,8 @@ The post2post library now includes a method to generate Tailscale auth keys usin
 func (s *Server) GenerateTailnetKeyFromOAuth(reusable bool, ephemeral bool, preauth bool, tags string) (string, error)
 ```
 
+**Note:** This method automatically handles the Tailscale unstable API acknowledgment by setting `tailscale.I_Acknowledge_This_API_Is_Unstable = true` internally.
+
 **Parameters:**
 - `reusable`: Whether the key can be used multiple times
 - `ephemeral`: Whether devices using this key are automatically removed when offline
@@ -272,16 +274,20 @@ if err != nil {
 
 ### Common Issues
 
-1. **"TS_API_CLIENT_ID and TS_API_CLIENT_SECRET must be set"**
+1. **"use of Client without setting I_Acknowledge_This_API_Is_Unstable"**
+   - **Fixed automatically**: post2post library handles this internally
+   - The library sets `tailscale.I_Acknowledge_This_API_Is_Unstable = true` automatically
+
+2. **"TS_API_CLIENT_ID and TS_API_CLIENT_SECRET must be set"**
    - Solution: Set OAuth environment variables
 
-2. **"at least one tag must be specified"**
+3. **"at least one tag must be specified"**
    - Solution: Set `TAILSCALE_TAGS` or ensure default is used
 
-3. **"OAuth client missing 'devices' scope"**
+4. **"OAuth client missing 'devices' scope"**
    - Solution: Recreate OAuth client with `devices` scope checked
 
-4. **"requested tags are invalid or not permitted"**
+5. **"requested tags are invalid or not permitted"**
    - Solution: Update ACL configuration (see `TAILSCALE_SETUP_GUIDE.md`)
 
 ### Debug Mode

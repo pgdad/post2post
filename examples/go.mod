@@ -82,4 +82,5 @@ require (
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
 	gvisor.dev/gvisor v0.0.0-20250205023644-9414b50a5633 // indirect
+	tailscale.com/client/tailscale/v2 v2.0.0-20250616154411-35b8e02bd63e // indirect
 )
