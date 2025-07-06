@@ -12,6 +12,9 @@ provider "aws" {
   region = var.aws_region
 }
 
+# Get current AWS account ID
+data "aws_caller_identity" "current" {}
+
 variable "aws_region" {
   description = "AWS region"
   type        = string
@@ -53,11 +56,10 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# IAM policy for STS AssumeRole - allows assuming any role
-# In production, you should restrict this to specific roles
+# IAM policy for STS AssumeRole - restricted to roles in /remote/ path
 resource "aws_iam_policy" "sts_assume_role" {
   name        = "${var.function_name}-sts-policy"
-  description = "Allow Lambda to assume roles via STS"
+  description = "Allow Lambda to assume roles in /remote/ path via STS"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -67,7 +69,7 @@ resource "aws_iam_policy" "sts_assume_role" {
         Action = [
           "sts:AssumeRole"
         ]
-        Resource = "*"  # In production, restrict to specific role ARNs
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/remote/*"
       }
     ]
   })

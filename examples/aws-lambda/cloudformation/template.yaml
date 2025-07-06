@@ -37,7 +37,7 @@ Resources:
             - Effect: Allow
               Action:
                 - sts:AssumeRole
-              Resource: '*'  # Restrict to specific roles in production
+              Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/remote/*'
             - Effect: Allow
               Action:
                 - logs:CreateLogGroup

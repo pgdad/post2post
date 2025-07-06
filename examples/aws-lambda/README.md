@@ -132,17 +132,19 @@ The Lambda function needs the following IAM permissions:
       "Action": [
         "sts:AssumeRole"
       ],
-      "Resource": "*"
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/remote/*"
     }
   ]
 }
 ```
 
-**Security Note**: In production, restrict the `sts:AssumeRole` resource to specific role ARNs rather than using `*`.
+**Security Note**: The Lambda can only assume roles within the same AWS account that have a path of `/remote/`. This provides defense-in-depth by limiting the scope of assumable roles.
 
 ### Target Roles
 
-The roles you want to assume must trust the Lambda execution role:
+The roles you want to assume must:
+1. **Have a path of `/remote/`** (e.g., `arn:aws:iam::ACCOUNT:role/remote/MyRole`)
+2. **Trust the Lambda execution role** in their assume role policy:
 
 ```json
 {
@@ -157,6 +159,15 @@ The roles you want to assume must trust the Lambda execution role:
     }
   ]
 }
+```
+
+**Example**: To create a role that can be assumed by the Lambda:
+```bash
+# Create role with /remote/ path
+aws iam create-role \
+  --role-name MyRemoteRole \
+  --path /remote/ \
+  --assume-role-policy-document file://trust-policy.json
 ```
 
 ## Building and Deployment
@@ -234,7 +245,7 @@ curl -X POST https://your-lambda-url.lambda-url.us-east-1.on.aws/ \
     "url": "http://your-callback-server.example.ts.net/roundtrip",
     "payload": {"message": "Hello from client"},
     "request_id": "test-123",
-    "role_arn": "arn:aws:iam::123456789012:role/TestRole"
+    "role_arn": "arn:aws:iam::123456789012:role/remote/TestRole"
   }'
 ```
 
@@ -247,7 +258,7 @@ curl -X POST https://your-lambda-url.lambda-url.us-east-1.on.aws/ \
     "url": "http://secure-server.example.ts.net/roundtrip",
     "payload": {"secure": "data"},
     "request_id": "secure-123",
-    "role_arn": "arn:aws:iam::123456789012:role/SecureRole",
+    "role_arn": "arn:aws:iam::123456789012:role/remote/SecureRole",
     "tailnet_key": "tskey-auth-your-key-here"
   }'
 ```
