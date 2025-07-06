@@ -9,6 +9,3 @@ function_name = "post2post-receiver"
 
 # Optional: AWS region 
 aws_region = "us-east-1"
-
-# Optional: Tailscale auth key for secure networking
-# tailscale_auth_key = "tskey-auth-..."

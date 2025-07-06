@@ -106,6 +106,7 @@ The Lambda function requires the following environment variables:
 - `TAILSCALE_AUTH_KEY`: Tailscale auth key for secure networking (e.g., `tskey-auth-...`)
   - Used for creating secure connections through Tailscale mesh
   - If not provided, standard HTTP is used for responses
+  - **Note**: Not configured via infrastructure templates - set manually if needed
 
 ## IAM Permissions
 
@@ -181,8 +182,7 @@ terraform apply
 # With custom variables
 terraform apply \
   -var="function_name=my-post2post" \
-  -var="tailnet_domain=example.ts.net" \
-  -var="tailscale_auth_key=tskey-auth-..."
+  -var="tailnet_domain=example.ts.net"
 ```
 
 #### Option B: CloudFormation Deployment
@@ -193,8 +193,7 @@ aws cloudformation deploy \
   --stack-name post2post-receiver \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides \
-    TailnetDomain=example.ts.net \
-    TailscaleAuthKey=tskey-auth-...
+    TailnetDomain=example.ts.net
 ```
 
 #### Option C: AWS CLI Deployment
@@ -213,7 +212,7 @@ aws lambda create-function \
   --role arn:aws:iam::YOUR_ACCOUNT:role/post2post-receiver-role \
   --handler bootstrap \
   --zip-file fileb://bootstrap.zip \
-  --environment Variables='{TAILNET_DOMAIN=example.ts.net,TAILSCALE_AUTH_KEY=tskey-auth-...}'
+  --environment Variables='{TAILNET_DOMAIN=example.ts.net}'
 
 # Create function URL
 aws lambda create-function-url-config \

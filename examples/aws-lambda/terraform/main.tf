@@ -24,13 +24,6 @@ variable "function_name" {
   default     = "post2post-receiver"
 }
 
-variable "tailscale_auth_key" {
-  description = "Tailscale auth key for secure networking (optional)"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
 variable "tailnet_domain" {
   description = "Tailscale tailnet domain (e.g., example.ts.net) - required for URL validation"
   type        = string
@@ -96,8 +89,7 @@ resource "aws_lambda_function" "post2post_receiver" {
 
   environment {
     variables = {
-      TAILSCALE_AUTH_KEY = var.tailscale_auth_key
-      TAILNET_DOMAIN     = var.tailnet_domain
+      TAILNET_DOMAIN = var.tailnet_domain
     }
   }
 

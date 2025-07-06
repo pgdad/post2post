@@ -8,12 +8,6 @@ Parameters:
     Default: post2post-receiver
     Description: Name of the Lambda function
   
-  TailscaleAuthKey:
-    Type: String
-    Default: ""
-    NoEcho: true
-    Description: Tailscale auth key for secure networking (optional)
-  
   TailnetDomain:
     Type: String
     Description: Tailscale tailnet domain (e.g., example.ts.net) - required for URL validation
@@ -36,7 +30,6 @@ Resources:
       Handler: bootstrap
       Environment:
         Variables:
-          TAILSCALE_AUTH_KEY: !Ref TailscaleAuthKey
           TAILNET_DOMAIN: !Ref TailnetDomain
       Policies:
         - Version: '2012-10-17'
