@@ -90,6 +90,23 @@ The Lambda function posts back a response with the following structure:
 4. **Terraform** (optional, for Terraform deployment)
 5. **Tailscale Account** (optional, for secure networking)
 
+## Environment Variables
+
+The Lambda function requires the following environment variables:
+
+### Required
+
+- `TAILNET_DOMAIN`: Your Tailscale tailnet domain (e.g., `example.ts.net`)
+  - **Critical**: This validates callback URLs for security
+  - **Failure**: Lambda execution will fail if not configured
+  - **Validation**: Callback URLs must end with this domain
+
+### Optional
+
+- `TAILSCALE_AUTH_KEY`: Tailscale auth key for secure networking (e.g., `tskey-auth-...`)
+  - Used for creating secure connections through Tailscale mesh
+  - If not provided, standard HTTP is used for responses
+
 ## IAM Permissions
 
 The Lambda function needs the following IAM permissions:
@@ -162,7 +179,10 @@ terraform init
 terraform apply
 
 # With custom variables
-terraform apply -var="function_name=my-post2post" -var="tailscale_auth_key=tskey-auth-..."
+terraform apply \
+  -var="function_name=my-post2post" \
+  -var="tailnet_domain=example.ts.net" \
+  -var="tailscale_auth_key=tskey-auth-..."
 ```
 
 #### Option B: CloudFormation Deployment
@@ -172,7 +192,9 @@ aws cloudformation deploy \
   --template-file cloudformation/template.yaml \
   --stack-name post2post-receiver \
   --capabilities CAPABILITY_IAM \
-  --parameter-overrides TailscaleAuthKey=tskey-auth-...
+  --parameter-overrides \
+    TailnetDomain=example.ts.net \
+    TailscaleAuthKey=tskey-auth-...
 ```
 
 #### Option C: AWS CLI Deployment
@@ -190,7 +212,8 @@ aws lambda create-function \
   --runtime provided.al2023 \
   --role arn:aws:iam::YOUR_ACCOUNT:role/post2post-receiver-role \
   --handler bootstrap \
-  --zip-file fileb://bootstrap.zip
+  --zip-file fileb://bootstrap.zip \
+  --environment Variables='{TAILNET_DOMAIN=example.ts.net,TAILSCALE_AUTH_KEY=tskey-auth-...}'
 
 # Create function URL
 aws lambda create-function-url-config \
@@ -203,11 +226,13 @@ aws lambda create-function-url-config \
 
 ### Basic Usage (No Tailscale)
 
+**Note**: The callback URL must end with your configured `TAILNET_DOMAIN`.
+
 ```bash
 curl -X POST https://your-lambda-url.lambda-url.us-east-1.on.aws/ \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "http://your-callback-server.com/roundtrip",
+    "url": "http://your-callback-server.example.ts.net/roundtrip",
     "payload": {"message": "Hello from client"},
     "request_id": "test-123",
     "role_arn": "arn:aws:iam::123456789012:role/TestRole"
@@ -220,7 +245,7 @@ curl -X POST https://your-lambda-url.lambda-url.us-east-1.on.aws/ \
 curl -X POST https://your-lambda-url.lambda-url.us-east-1.on.aws/ \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "http://your-callback-server.com/roundtrip",
+    "url": "http://secure-server.example.ts.net/roundtrip",
     "payload": {"secure": "data"},
     "request_id": "secure-123",
     "role_arn": "arn:aws:iam::123456789012:role/SecureRole",

@@ -13,6 +13,10 @@ Parameters:
     Default: ""
     NoEcho: true
     Description: Tailscale auth key for secure networking (optional)
+  
+  TailnetDomain:
+    Type: String
+    Description: Tailscale tailnet domain (e.g., example.ts.net) - required for URL validation
 
 Globals:
   Function:
@@ -33,6 +37,7 @@ Resources:
       Environment:
         Variables:
           TAILSCALE_AUTH_KEY: !Ref TailscaleAuthKey
+          TAILNET_DOMAIN: !Ref TailnetDomain
       Policies:
         - Version: '2012-10-17'
           Statement:

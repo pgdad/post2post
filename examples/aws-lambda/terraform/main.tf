@@ -31,6 +31,11 @@ variable "tailscale_auth_key" {
   sensitive   = true
 }
 
+variable "tailnet_domain" {
+  description = "Tailscale tailnet domain (e.g., example.ts.net) - required for URL validation"
+  type        = string
+}
+
 # IAM role for the Lambda function
 resource "aws_iam_role" "lambda_role" {
   name = "${var.function_name}-role"
@@ -92,6 +97,7 @@ resource "aws_lambda_function" "post2post_receiver" {
   environment {
     variables = {
       TAILSCALE_AUTH_KEY = var.tailscale_auth_key
+      TAILNET_DOMAIN     = var.tailnet_domain
     }
   }
 

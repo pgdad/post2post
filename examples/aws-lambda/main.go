@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -16,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/aws-sdk-go-v2/service/sts/types"
+	"tailscale.com/tsnet"
 )
 
 // LambdaRequest represents the incoming request payload
@@ -55,6 +58,7 @@ type LambdaResponse struct {
 // Global AWS configuration
 var awsConfig aws.Config
 var stsClient *sts.Client
+var allowedTailnetDomain string
 
 func init() {
 	// Initialize AWS configuration
@@ -66,7 +70,13 @@ func init() {
 	
 	stsClient = sts.NewFromConfig(awsConfig)
 	
-	log.Println("AWS Lambda post2post receiver initialized")
+	// Get required Tailscale domain configuration
+	allowedTailnetDomain = os.Getenv("TAILNET_DOMAIN")
+	if allowedTailnetDomain == "" {
+		log.Fatalf("TAILNET_DOMAIN environment variable is required but not set")
+	}
+	
+	log.Printf("AWS Lambda post2post receiver initialized with Tailnet domain: %s", allowedTailnetDomain)
 }
 
 // handleRequest processes the Lambda URL request
@@ -112,6 +122,16 @@ func handleRequest(ctx context.Context, request events.LambdaFunctionURLRequest)
 		return events.LambdaFunctionURLResponse{
 			StatusCode: http.StatusBadRequest,
 			Body:       `{"error": "callback url is required"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
+	}
+	
+	// Validate callback URL domain against configured Tailnet domain
+	if err := validateCallbackURL(lambdaReq.URL); err != nil {
+		log.Printf("Invalid callback URL %s: %v", lambdaReq.URL, err)
+		return events.LambdaFunctionURLResponse{
+			StatusCode: http.StatusForbidden,
+			Body:       fmt.Sprintf(`{"error": "Invalid callback URL: %s"}`, err.Error()),
 			Headers:    map[string]string{"Content-Type": "application/json"},
 		}, nil
 	}
@@ -246,29 +266,60 @@ func postResponse(callbackURL string, response LambdaResponse, tailnetKey string
 
 // createTailscaleClient creates an HTTP client that routes through Tailscale
 func createTailscaleClient(tailnetKey string) (*http.Client, error) {
-	// Framework for Tailscale integration using tsnet
-	// 
-	// To implement full Tailscale integration, uncomment and modify the following:
-	//
-	// import "tailscale.com/tsnet"
-	//
-	// srv := &tsnet.Server{
-	//     Hostname: "lambda-post2post-receiver",
-	//     AuthKey:  tailnetKey,
-	//     Ephemeral: true, // Lambda instances are ephemeral
-	// }
-	// 
-	// // Start the tsnet server
-	// if err := srv.Start(); err != nil {
-	//     return nil, fmt.Errorf("failed to start tsnet server: %w", err)
-	// }
-	//
-	// // Create HTTP client that routes through Tailscale
-	// client := srv.HTTPClient()
-	// return client, nil
+	// Create tsnet server for Tailscale integration
+	srv := &tsnet.Server{
+		Hostname:  "lambda-post2post-receiver",
+		AuthKey:   tailnetKey,
+		Ephemeral: true, // Lambda instances are ephemeral
+	}
 	
-	// For development/demo, return an error indicating Tailscale setup is needed
-	return nil, fmt.Errorf("Tailscale integration requires tsnet configuration with auth key: %s", tailnetKey)
+	// Start the tsnet server
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
+	if err := srv.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start tsnet server: %w", err)
+	}
+	
+	// Wait for the server to be ready
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timeout waiting for Tailscale to start")
+		default:
+			if srv.Up() {
+				log.Println("Tailscale tsnet server is ready")
+				goto ready
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	
+ready:
+	// Create HTTP client that routes through Tailscale
+	client := srv.HTTPClient()
+	return client, nil
+}
+
+// validateCallbackURL validates that the callback URL domain matches the configured Tailnet domain
+func validateCallbackURL(callbackURL string) error {
+	parsedURL, err := url.Parse(callbackURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL format: %w", err)
+	}
+	
+	// Extract the hostname from the URL
+	hostname := parsedURL.Hostname()
+	if hostname == "" {
+		return fmt.Errorf("no hostname found in URL")
+	}
+	
+	// Check if hostname ends with the allowed Tailnet domain
+	if !strings.HasSuffix(hostname, allowedTailnetDomain) {
+		return fmt.Errorf("hostname %s does not match allowed Tailnet domain %s", hostname, allowedTailnetDomain)
+	}
+	
+	return nil
 }
 
 // postErrorResponse posts an error response back to the callback URL

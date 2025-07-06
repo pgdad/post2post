@@ -1,0 +1,14 @@
+# Example Terraform variables file
+# Copy to terraform.tfvars and customize
+
+# Required: Your Tailscale tailnet domain for URL validation
+tailnet_domain = "example.ts.net"
+
+# Optional: Custom function name
+function_name = "post2post-receiver"
+
+# Optional: AWS region 
+aws_region = "us-east-1"
+
+# Optional: Tailscale auth key for secure networking
+# tailscale_auth_key = "tskey-auth-..."

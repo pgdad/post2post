@@ -7,6 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.24.0
 	github.com/aws/aws-sdk-go-v2/config v1.26.1
 	github.com/aws/aws-sdk-go-v2/service/sts v1.26.5
+	tailscale.com v1.76.1
 )
 
 require (
@@ -22,5 +23,4 @@ require (
 	github.com/aws/smithy-go v1.19.0 // indirect
 )
 
-// Uncomment the following line to enable full Tailscale integration:
-// require tailscale.com v1.76.1
+// Tailscale integration enabled
