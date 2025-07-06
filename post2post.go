@@ -356,7 +356,7 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, tailnetKey string
 		}, nil
 	}
 	
-	log.Println("JSON DATA in REQ: %s", string(jsonData))
+	log.Printf("JSON DATA in REQ: %s", string(jsonData))
 	req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return &RoundTripResponse{
