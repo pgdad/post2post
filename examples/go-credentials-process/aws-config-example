@@ -1,0 +1,31 @@
+# Example AWS CLI configuration for post2post credentials process
+# Place this in ~/.aws/config
+
+# Basic profile with command-line arguments
+[profile post2post-dev]
+credential_process = /usr/local/bin/post2post-credentials --lambda-url https://your-lambda-url.amazonaws.com/ --role-arn arn:aws:iam::123456789012:role/remote/DevRole --tailnet-key tskey-auth-your-dev-key --session-name dev-session
+region = us-east-1
+output = json
+
+# Profile using environment variables (recommended for security)
+[profile post2post-prod]
+credential_process = /usr/local/bin/post2post-credentials
+region = us-west-2
+output = json
+
+# Environment variables for the above profile (set in your shell):
+# export POST2POST_LAMBDA_URL="https://your-lambda-url.amazonaws.com/"
+# export POST2POST_ROLE_ARN="arn:aws:iam::987654321098:role/remote/ProdRole"
+# export POST2POST_TAILNET_KEY="tskey-auth-your-prod-key"
+# export POST2POST_SESSION_NAME="prod-session"
+
+# Profile with custom duration and timeout
+[profile post2post-batch]
+credential_process = /usr/local/bin/post2post-credentials --duration 4h --timeout 60s
+region = us-east-1
+output = table
+
+# Usage examples:
+# aws s3 ls --profile post2post-dev
+# aws ec2 describe-instances --profile post2post-prod
+# aws sts get-caller-identity --profile post2post-batch
