@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,6 +23,15 @@ type CredentialsProcessOutput struct {
 	SecretAccessKey string `json:"SecretAccessKey"`
 	SessionToken    string `json:"SessionToken,omitempty"`
 	Expiration      string `json:"Expiration,omitempty"`
+}
+
+// CachedCredentials represents credentials stored in the cache file
+type CachedCredentials struct {
+	Credentials CredentialsProcessOutput `json:"credentials"`
+	CachedAt    time.Time                `json:"cached_at"`
+	ExpiresAt   time.Time                `json:"expires_at"`
+	RoleARN     string                   `json:"role_arn"`
+	LambdaURL   string                   `json:"lambda_url"`
 }
 
 // Config holds the configuration for the credentials process
@@ -52,24 +62,42 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create and retrieve credentials
-	credentials, err := retrieveCredentials(config)
+	// Try to load cached credentials first
+	var output *CredentialsProcessOutput
+	cachedOutput, err := loadCachedCredentials(config)
 	if err != nil {
-		log.Printf("Failed to retrieve credentials: %v", err)
-		os.Exit(1)
+		log.Printf("Warning: failed to load cached credentials: %v", err)
 	}
+	
+	if cachedOutput != nil {
+		// Use cached credentials
+		output = cachedOutput
+	} else {
+		// Retrieve fresh credentials
+		log.Printf("Retrieving fresh credentials from Lambda")
+		credentials, err := retrieveCredentials(config)
+		if err != nil {
+			log.Printf("Failed to retrieve credentials: %v", err)
+			os.Exit(1)
+		}
 
-	// Output credentials in AWS credentials_process JSON format
-	output := CredentialsProcessOutput{
-		Version:         1,
-		AccessKeyId:     credentials.AccessKeyID,
-		SecretAccessKey: credentials.SecretAccessKey,
-		SessionToken:    credentials.SessionToken,
-	}
+		// Convert to output format
+		output = &CredentialsProcessOutput{
+			Version:         1,
+			AccessKeyId:     credentials.AccessKeyID,
+			SecretAccessKey: credentials.SecretAccessKey,
+			SessionToken:    credentials.SessionToken,
+		}
 
-	// Add expiration if available
-	if !credentials.Expires.IsZero() {
-		output.Expiration = credentials.Expires.Format(time.RFC3339)
+		// Add expiration if available
+		if !credentials.Expires.IsZero() {
+			output.Expiration = credentials.Expires.Format(time.RFC3339)
+		}
+		
+		// Save to cache
+		if err := saveCachedCredentials(config, output); err != nil {
+			log.Printf("Warning: failed to save credentials to cache: %v", err)
+		}
 	}
 
 	// Marshal and output JSON to stdout
@@ -231,4 +259,118 @@ func retrieveCredentials(config *Config) (aws.Credentials, error) {
 	log.Printf("Successfully retrieved credentials (expires: %s)", credentials.Expires.Format(time.RFC3339))
 	
 	return credentials, nil
+}
+
+// getCacheFilePath returns the path to the cache file based on session name
+func getCacheFilePath(sessionName string) (string, error) {
+	// Get user's home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	
+	// Create cache directory path
+	cacheDir := filepath.Join(homeDir, ".cache")
+	
+	// Ensure cache directory exists
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create cache directory: %w", err)
+	}
+	
+	// Create cache file path using session name
+	cacheFile := filepath.Join(cacheDir, sessionName)
+	return cacheFile, nil
+}
+
+// loadCachedCredentials attempts to load valid cached credentials
+func loadCachedCredentials(config *Config) (*CredentialsProcessOutput, error) {
+	cacheFile, err := getCacheFilePath(config.SessionName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cache file path: %w", err)
+	}
+	
+	log.Printf("Checking for cached credentials in: %s", cacheFile)
+	
+	// Check if cache file exists
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("No cached credentials found")
+			return nil, nil // No cache file exists
+		}
+		return nil, fmt.Errorf("failed to read cache file: %w", err)
+	}
+	
+	// Parse cached credentials
+	var cached CachedCredentials
+	if err := json.Unmarshal(data, &cached); err != nil {
+		log.Printf("Invalid cache file format, ignoring: %v", err)
+		return nil, nil // Invalid cache, ignore it
+	}
+	
+	// Validate that cache matches current configuration
+	if cached.RoleARN != config.RoleARN || cached.LambdaURL != config.LambdaURL {
+		log.Printf("Cache configuration mismatch (RoleARN: %s vs %s, LambdaURL: %s vs %s), ignoring cache", 
+			cached.RoleARN, config.RoleARN, cached.LambdaURL, config.LambdaURL)
+		return nil, nil
+	}
+	
+	// Check if credentials are still valid (not within 10 minutes of expiration)
+	now := time.Now()
+	expirationBuffer := 10 * time.Minute
+	expiresWithBuffer := cached.ExpiresAt.Add(-expirationBuffer)
+	
+	if now.After(expiresWithBuffer) {
+		log.Printf("Cached credentials expire soon (at %s, buffer until %s), refreshing", 
+			cached.ExpiresAt.Format(time.RFC3339), expiresWithBuffer.Format(time.RFC3339))
+		return nil, nil // Need to refresh
+	}
+	
+	log.Printf("Using valid cached credentials (expires: %s)", cached.ExpiresAt.Format(time.RFC3339))
+	return &cached.Credentials, nil
+}
+
+// saveCachedCredentials saves credentials to the cache file
+func saveCachedCredentials(config *Config, credentials *CredentialsProcessOutput) error {
+	cacheFile, err := getCacheFilePath(config.SessionName)
+	if err != nil {
+		return fmt.Errorf("failed to get cache file path: %w", err)
+	}
+	
+	// Parse expiration time from credentials
+	var expiresAt time.Time
+	if credentials.Expiration != "" {
+		if parsed, err := time.Parse(time.RFC3339, credentials.Expiration); err == nil {
+			expiresAt = parsed
+		} else {
+			log.Printf("Warning: failed to parse expiration time, using 1 hour from now: %v", err)
+			expiresAt = time.Now().Add(1 * time.Hour)
+		}
+	} else {
+		// Default to 1 hour if no expiration provided
+		expiresAt = time.Now().Add(1 * time.Hour)
+	}
+	
+	// Create cached credentials structure
+	cached := CachedCredentials{
+		Credentials: *credentials,
+		CachedAt:    time.Now(),
+		ExpiresAt:   expiresAt,
+		RoleARN:     config.RoleARN,
+		LambdaURL:   config.LambdaURL,
+	}
+	
+	// Marshal to JSON
+	data, err := json.MarshalIndent(cached, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal cached credentials: %w", err)
+	}
+	
+	// Write to cache file with restricted permissions
+	if err := os.WriteFile(cacheFile, data, 0600); err != nil {
+		return fmt.Errorf("failed to write cache file: %w", err)
+	}
+	
+	log.Printf("Cached credentials saved to: %s (expires: %s)", cacheFile, expiresAt.Format(time.RFC3339))
+	return nil
 }
