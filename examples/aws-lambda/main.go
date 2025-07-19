@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -86,11 +87,13 @@ func handleRequest(ctx context.Context, request events.LambdaFunctionURLRequest)
 	
 	// Only handle POST requests
 	if request.RequestContext.HTTP.Method != "POST" {
-		return events.LambdaFunctionURLResponse{
+		errorResponse := events.LambdaFunctionURLResponse{
 			StatusCode: http.StatusMethodNotAllowed,
 			Body:       `{"error": "Method not allowed"}`,
 			Headers:    map[string]string{"Content-Type": "application/json"},
-		}, nil
+		}
+		log.Printf("Lambda returning error response: StatusCode=%d, Body=%s", errorResponse.StatusCode, errorResponse.Body)
+		return errorResponse, nil
 	}
 	
 	// Parse the incoming post2post wrapper request
@@ -167,17 +170,18 @@ func handleRequest(ctx context.Context, request events.LambdaFunctionURLRequest)
 		}, nil
 	}
 	
-	// Process the request asynchronously
-	go func() {
-		processRequest(ctx, lambdaReq, request.RequestContext.RequestID)
-	}()
+	// Process the request synchronously 
+	processRequest(ctx, lambdaReq, request.RequestContext.RequestID)
 	
-	// Return immediate acknowledgment
-	return events.LambdaFunctionURLResponse{
+	// Return success acknowledgment after processing completes
+	lambdaResponse := events.LambdaFunctionURLResponse{
 		StatusCode: http.StatusOK,
-		Body:       `{"status": "accepted", "message": "Processing request"}`,
+		Body:       `{"status": "completed", "message": "Request processed successfully"}`,
 		Headers:    map[string]string{"Content-Type": "application/json"},
-	}, nil
+	}
+	
+	log.Printf("Lambda returning response: StatusCode=%d, Body=%s", lambdaResponse.StatusCode, lambdaResponse.Body)
+	return lambdaResponse, nil
 }
 
 // processRequest handles the actual processing and response posting
@@ -215,6 +219,7 @@ func processRequest(ctx context.Context, req LambdaRequest, lambdaRequestID stri
 	}
 	
 	// Post the response back using Tailscale if specified
+	log.Printf("Posting response back to callback URL: %s", req.URL)
 	if err := postResponse(req.URL, response, req.TailnetKey); err != nil {
 		log.Printf("Failed to post response back to %s: %v", req.URL, err)
 	} else {
@@ -256,20 +261,24 @@ func postResponse(callbackURL string, response LambdaResponse, tailnetKey string
 		return fmt.Errorf("failed to marshal response: %w", err)
 	}
 	
+	log.Printf("Response body to post to receiver: %s", string(responseJSON))
+	
 	var client *http.Client
 	
 	if tailnetKey != "" {
 		// Use Tailscale client for secure networking
+		log.Printf("Attempting to create Tailscale client for callback to: %s", callbackURL)
 		tailscaleClient, err := createTailscaleClient(tailnetKey)
 		if err != nil {
 			log.Printf("Failed to create Tailscale client, falling back to regular HTTP: %v", err)
 			client = &http.Client{Timeout: 30 * time.Second}
 		} else {
 			client = tailscaleClient
-			log.Println("Using Tailscale networking for response")
+			log.Printf("Successfully created Tailscale client for callback")
 		}
 	} else {
 		// Use regular HTTP client
+		log.Printf("Using regular HTTP client for callback to: %s", callbackURL)
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	
@@ -288,6 +297,14 @@ func postResponse(callbackURL string, response LambdaResponse, tailnetKey string
 	}
 	defer resp.Body.Close()
 	
+	// Read and log the response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read response body: %v", err)
+	} else {
+		log.Printf("Receiver response status: %d, body: %s", resp.StatusCode, string(respBody))
+	}
+	
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("callback returned error status: %d", resp.StatusCode)
 	}
@@ -297,20 +314,46 @@ func postResponse(callbackURL string, response LambdaResponse, tailnetKey string
 
 // createTailscaleClient creates an HTTP client that routes through Tailscale
 func createTailscaleClient(tailnetKey string) (*http.Client, error) {
+	// Set environment variables required by tsnet if not already set
+	if os.Getenv("HOME") == "" {
+		os.Setenv("HOME", "/tmp")
+	}
+	if os.Getenv("XDG_CONFIG_HOME") == "" {
+		os.Setenv("XDG_CONFIG_HOME", "/tmp/.config")
+	}
+	
+	// Force fresh login in Lambda environment to avoid state conflicts
+	os.Setenv("TSNET_FORCE_LOGIN", "1")
+	
+	// Ensure auth key is used instead of interactive login
+	if tailnetKey == "" {
+		return nil, fmt.Errorf("tailnet key is required for Tailscale authentication")
+	}
+	
+	// Clean up any existing state directory to ensure fresh start
+	stateDir := "/tmp/tailscale"
+	os.RemoveAll(stateDir)
+	
 	// Create tsnet server for Tailscale integration
 	srv := &tsnet.Server{
-		Hostname:  "lambda-post2post-receiver",
-		AuthKey:   tailnetKey,
-		Ephemeral: true, // Lambda instances are ephemeral
+		Hostname:    "lambda-post2post-receiver",
+		AuthKey:     tailnetKey,
+		Ephemeral:   true, // Lambda instances are ephemeral
+		Dir:         stateDir, // Use writable tmp directory for state
+		Logf:        log.Printf, // Enable logging for debugging
+		ControlURL:  "", // Use default Tailscale control server
 	}
 	
 	// Start the tsnet server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	
+	log.Printf("Starting Tailscale tsnet server with auth key: %s...", tailnetKey[:min(len(tailnetKey), 10)])
 	if err := srv.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start tsnet server: %w", err)
 	}
+	
+	log.Printf("Tailscale tsnet server started, waiting for connection...")
 	
 	// Wait for the server to be ready
 	for {

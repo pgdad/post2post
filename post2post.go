@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -162,10 +163,18 @@ func (s *Server) Start() error {
 		s.port = tcpAddr.Port
 	}
 	
+	log.Printf("Server starting on %s network, interface: %s, port: %d", s.network, s.iface, s.port)
+	log.Printf("Server listening on: %s", listener.Addr().String())
+	log.Printf("Server available routes: /, /roundtrip, /webhook")
+	
 	s.running = true
 	
 	go func() {
-		s.server.Serve(listener)
+		log.Printf("HTTP server goroutine starting...")
+		if err := s.server.Serve(listener); err != nil {
+			log.Printf("HTTP server error: %v", err)
+		}
+		log.Printf("HTTP server goroutine finished")
 	}()
 	
 	return nil
@@ -281,6 +290,32 @@ func (s *Server) GetTailscaleURL() (string, error) {
 	return fmt.Sprintf("http://%s:%d", hostname, port), nil
 }
 
+// GetTailscaleIP returns the Tailscale IP address for binding interfaces
+func (s *Server) GetTailscaleIP() (string, error) {
+	// Get Tailscale status to find our IP address
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	client := &tailscale.LocalClient{}
+	status, err := client.Status(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get Tailscale status: %w", err)
+	}
+	
+	if status.Self == nil {
+		return "", fmt.Errorf("Tailscale not connected or no self node found")
+	}
+	
+	// Get the first Tailscale IP address
+	if len(status.Self.TailscaleIPs) == 0 {
+		return "", fmt.Errorf("no Tailscale IP addresses available")
+	}
+	
+	// Use the first IP address (usually IPv4)
+	tailscaleIP := status.Self.TailscaleIPs[0].String()
+	return tailscaleIP, nil
+}
+
 // PostJSON posts JSON data to the configured URL with server URL and payload
 func (s *Server) PostJSON(payload interface{}) error {
 	return s.PostJSONWithTailnet(payload, "")
@@ -354,13 +389,31 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, tailnetKey string
 		return nil, fmt.Errorf("server is not running")
 	}
 	
-	// Generate unique request ID
-	requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
+	// Extract or generate request ID from payload
+	var requestID string
+	
+	// Try to extract RequestID from payload using reflection
+	v := reflect.ValueOf(payload)
+	if v.Kind() == reflect.Struct {
+		if field := v.FieldByName("RequestID"); field.IsValid() && field.Kind() == reflect.String && field.String() != "" {
+			requestID = field.String()
+			log.Printf("RoundTripPostWithTimeout: Using payload RequestID: %s", requestID)
+		} else {
+			// Generate unique request ID if not found in payload
+			requestID = fmt.Sprintf("req_%d", time.Now().UnixNano())
+			log.Printf("RoundTripPostWithTimeout: Generated new RequestID (no RequestID field): %s", requestID)
+		}
+	} else {
+		// Generate unique request ID if payload is not a struct
+		requestID = fmt.Sprintf("req_%d", time.Now().UnixNano())
+		log.Printf("RoundTripPostWithTimeout: Generated new RequestID (not struct): %s", requestID)
+	}
 	
 	// Create response channel
 	responseChan := make(chan *RoundTripResponse, 1)
 	s.mu.Lock()
 	s.roundTripChans[requestID] = responseChan
+	log.Printf("RoundTripPostWithTimeout: Created channel for RequestID: %s, total channels: %d", requestID, len(s.roundTripChans))
 	s.mu.Unlock()
 	
 	// Cleanup function
@@ -368,6 +421,7 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, tailnetKey string
 		s.mu.Lock()
 		delete(s.roundTripChans, requestID)
 		close(responseChan)
+		log.Printf("RoundTripPostWithTimeout: Cleaned up channel for RequestID: %s, remaining channels: %d", requestID, len(s.roundTripChans))
 		s.mu.Unlock()
 	}()
 	
@@ -388,7 +442,9 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, tailnetKey string
 		}, nil
 	}
 	
-	log.Printf("JSON DATA in REQ: %s", string(jsonData))
+	log.Printf("RoundTripPostWithTimeout: Sending request to %s with RequestID: %s", postURL, requestID)
+	log.Printf("RoundTripPostWithTimeout: JSON DATA: %s", string(jsonData))
+	
 	req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return &RoundTripResponse{
@@ -401,6 +457,7 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, tailnetKey string
 	req.Header.Set("Content-Type", "application/json")
 	
 	// Send the request
+	log.Printf("RoundTripPostWithTimeout: Making HTTP request for RequestID: %s", requestID)
 	resp, err := client.Do(req)
 	if err != nil {
 		return &RoundTripResponse{
@@ -412,6 +469,7 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, tailnetKey string
 	resp.Body.Close()
 	
 	if resp.StatusCode >= 400 {
+		log.Printf("RoundTripPostWithTimeout: HTTP request failed with status %d for RequestID: %s", resp.StatusCode, requestID)
 		return &RoundTripResponse{
 			Success: false,
 			Error:   fmt.Sprintf("post request failed with status: %d", resp.StatusCode),
@@ -419,14 +477,39 @@ func (s *Server) RoundTripPostWithTimeout(payload interface{}, tailnetKey string
 		}, nil
 	}
 	
+	log.Printf("RoundTripPostWithTimeout: HTTP request successful (%d), waiting for response on channel for RequestID: %s", resp.StatusCode, requestID)
+	
 	// Wait for response or timeout
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	
 	select {
 	case response := <-responseChan:
+		log.Printf("RoundTripPostWithTimeout: Received response from channel for RequestID: %s", requestID)
+		
+		// Log the response content for debugging
+		if response != nil {
+			responseJSON, err := json.Marshal(response)
+			if err != nil {
+				log.Printf("RoundTripPostWithTimeout: Failed to marshal response for logging: %v", err)
+			} else {
+				log.Printf("RoundTripPostWithTimeout: Response content: %s", string(responseJSON))
+			}
+			
+			// Also log the payload specifically if it exists
+			if response.Payload != nil {
+				payloadJSON, err := json.Marshal(response.Payload)
+				if err != nil {
+					log.Printf("RoundTripPostWithTimeout: Failed to marshal payload for logging: %v", err)
+				} else {
+					log.Printf("RoundTripPostWithTimeout: Response payload: %s", string(payloadJSON))
+				}
+			}
+		}
+		
 		return response, nil
 	case <-ctx.Done():
+		log.Printf("RoundTripPostWithTimeout: Timeout waiting for response for RequestID: %s", requestID)
 		return &RoundTripResponse{
 			Success:   false,
 			Error:     "timeout waiting for response",
@@ -540,16 +623,23 @@ func (s *Server) postWithOptionalTailscale(url string, data []byte, tailnetKey s
 
 // roundTripHandler handles incoming responses for round trip requests
 func (s *Server) roundTripHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("roundTripHandler: Received %s request from %s to %s", r.Method, r.RemoteAddr, r.URL.Path)
+	log.Printf("roundTripHandler: Request headers: %+v", r.Header)
+	
 	if r.Method != "POST" {
+		log.Printf("roundTripHandler: Method not allowed: %s", r.Method)
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 	
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		log.Printf("roundTripHandler: Failed to read request body: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	
+	log.Printf("roundTripHandler: Request body: %s", string(body))
 	
 	var responseData struct {
 		RequestID  string      `json:"request_id"`
@@ -559,16 +649,29 @@ func (s *Server) roundTripHandler(w http.ResponseWriter, r *http.Request) {
 	
 	err = json.Unmarshal(body, &responseData)
 	if err != nil {
+		log.Printf("roundTripHandler: Failed to unmarshal JSON: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 	
+	log.Printf("roundTripHandler: Parsed request - RequestID: %s, TailnetKey: %s", responseData.RequestID, responseData.TailnetKey)
+	
 	// Find the waiting channel
 	s.mu.RLock()
 	responseChan, exists := s.roundTripChans[responseData.RequestID]
+	
+	// Log all current channels for debugging
+	log.Printf("roundTripHandler: Looking for RequestID '%s'", responseData.RequestID)
+	log.Printf("roundTripHandler: Current channels (%d total):", len(s.roundTripChans))
+	for id := range s.roundTripChans {
+		log.Printf("roundTripHandler: - Channel exists for RequestID: '%s'", id)
+	}
+	log.Printf("roundTripHandler: Channel found for RequestID '%s': %v", responseData.RequestID, exists)
+	
 	s.mu.RUnlock()
 	
 	if !exists {
+		log.Printf("roundTripHandler: No waiting channel found for RequestID: %s", responseData.RequestID)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -582,10 +685,12 @@ func (s *Server) roundTripHandler(w http.ResponseWriter, r *http.Request) {
 	
 	select {
 	case responseChan <- response:
+		log.Printf("roundTripHandler: Successfully sent response to waiting channel for RequestID: %s", responseData.RequestID)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Response received"))
 	default:
 		// Channel might be closed or full
+		log.Printf("roundTripHandler: Failed to send response - channel closed or full for RequestID: %s", responseData.RequestID)
 		w.WriteHeader(http.StatusGone)
 	}
 }

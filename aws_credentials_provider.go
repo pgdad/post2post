@@ -93,6 +93,18 @@ func NewAWSCredentialsProvider(config AWSCredentialsProviderConfig) (*AWSCredent
 	// Create a post2post server for handling responses
 	server := NewServer().WithPostURL(config.LambdaURL)
 	
+	// Configure server to listen on Tailscale interface if tailnet key is provided
+	if config.TailnetKey != "" {
+		// Try to get Tailscale IP and bind to it
+		tailscaleIP, err := server.GetTailscaleIP()
+		if err != nil {
+			log.Printf("Failed to get Tailscale IP, falling back to default interface: %v", err)
+		} else {
+			server = server.WithInterface(tailscaleIP)
+			log.Printf("Server configured to listen on Tailscale interface: %s", tailscaleIP)
+		}
+	}
+	
 	// Start the server on an available port
 	if err := server.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start post2post server: %w", err)
@@ -162,24 +174,32 @@ func (p *AWSCredentialsProvider) Retrieve(ctx context.Context) (aws.Credentials,
 		return aws.Credentials{}, fmt.Errorf("failed to retrieve credentials from Lambda: %w", err)
 	}
 
-	// Parse the response
-	var lambdaResponse LambdaAssumeRoleResponse
+	// Parse the response directly as LambdaProcessedPayload
+	log.Printf("Credentials Provider: Parsing response payload from RoundTrip")
+	log.Printf("Credentials Provider: Response.Payload type: %T", response.Payload)
+	
+	var lambdaProcessedPayload LambdaProcessedPayload
 	responseBytes, err := json.Marshal(response.Payload)
 	if err != nil {
 		return aws.Credentials{}, fmt.Errorf("failed to marshal response payload: %w", err)
 	}
+	
+	log.Printf("Credentials Provider: Marshaled payload: %s", string(responseBytes))
 
-	if err := json.Unmarshal(responseBytes, &lambdaResponse); err != nil {
+	if err := json.Unmarshal(responseBytes, &lambdaProcessedPayload); err != nil {
 		return aws.Credentials{}, fmt.Errorf("failed to parse Lambda response: %w", err)
 	}
+	
+	log.Printf("Credentials Provider: Parsed LambdaProcessedPayload - LambdaRequestID: %s", lambdaProcessedPayload.LambdaRequestID)
+	log.Printf("Credentials Provider: Parsed Payload Status: '%s'", lambdaProcessedPayload.Status)
 
 	// Check if the request was successful
-	if lambdaResponse.Payload.Status != "success" {
-		return aws.Credentials{}, fmt.Errorf("Lambda returned error status: %s", lambdaResponse.Payload.Status)
+	if lambdaProcessedPayload.Status != "success" {
+		return aws.Credentials{}, fmt.Errorf("Lambda returned error status: '%s'", lambdaProcessedPayload.Status)
 	}
 
 	// Extract credentials from the response
-	stsCredentials := lambdaResponse.Payload.AssumeRoleResult.Credentials
+	stsCredentials := lambdaProcessedPayload.AssumeRoleResult.Credentials
 	if stsCredentials == nil {
 		return aws.Credentials{}, fmt.Errorf("no credentials returned in Lambda response")
 	}
@@ -202,7 +222,7 @@ func (p *AWSCredentialsProvider) Retrieve(ctx context.Context) (aws.Credentials,
 	p.mu.Unlock()
 
 	log.Printf("Successfully retrieved AWS credentials (expires: %s)", credentials.Expires.Format(time.RFC3339))
-	log.Printf("Assumed role user: %s", *lambdaResponse.Payload.AssumeRoleResult.AssumedRoleUser.Arn)
+	log.Printf("Assumed role user: %s", *lambdaProcessedPayload.AssumeRoleResult.AssumedRoleUser.Arn)
 
 	return credentials, nil
 }
