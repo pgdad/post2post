@@ -55,7 +55,9 @@ examples/aws-lambda/aws-lambda-post2post
 examples/aws-lambda/bootstrap.zip
 examples/aws-lambda/terraform/.terraform.lock.hcl
 examples/aws-lambda/terraform/.terraform/
-examples/aws-lambda/terraform/terraform.tfstate
+examples/aws-lambda/terraform/terraform.tfstate*
+examples/go-credentials-process/go-credentials-process
+examples/go-credentials-process/post2post-credentials*
 
 
 # Environment files

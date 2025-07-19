@@ -91,7 +91,7 @@ func NewAWSCredentialsProvider(config AWSCredentialsProviderConfig) (*AWSCredent
 	}
 
 	// Create a post2post server for handling responses
-	server := NewServer()
+	server := NewServer().WithPostURL(config.LambdaURL)
 	
 	// Start the server on an available port
 	if err := server.Start(); err != nil {
@@ -131,9 +131,25 @@ func (p *AWSCredentialsProvider) Retrieve(ctx context.Context) (aws.Credentials,
 	// Generate a unique request ID
 	requestID := fmt.Sprintf("creds-%d", time.Now().UnixNano())
 	
+	// Get the appropriate URL for the callback
+	var callbackURL string
+	if p.tailnetKey != "" {
+		// Use Tailscale hostname when Tailnet key is available
+		tailscaleURL, err := p.server.GetTailscaleURL()
+		if err != nil {
+			log.Printf("Failed to get Tailscale URL, falling back to localhost: %v", err)
+			callbackURL = p.server.GetURL() + "/roundtrip"
+		} else {
+			callbackURL = tailscaleURL + "/roundtrip"
+			log.Printf("Using Tailscale callback URL: %s", callbackURL)
+		}
+	} else {
+		callbackURL = p.server.GetURL() + "/roundtrip"
+	}
+
 	// Prepare the request payload
 	request := LambdaAssumeRoleRequest{
-		URL:        p.server.GetURL() + "/roundtrip",
+		URL:        callbackURL,
 		Payload:    fmt.Sprintf("assume-role-request-%s", requestID),
 		RequestID:  requestID,
 		TailnetKey: p.tailnetKey,

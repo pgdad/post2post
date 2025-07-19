@@ -82,6 +82,7 @@ func init() {
 // handleRequest processes the Lambda URL request
 func handleRequest(ctx context.Context, request events.LambdaFunctionURLRequest) (events.LambdaFunctionURLResponse, error) {
 	log.Printf("Received request: %s %s", request.RequestContext.HTTP.Method, request.RawPath)
+	log.Printf("Complete request body: %s", request.Body)
 	
 	// Only handle POST requests
 	if request.RequestContext.HTTP.Method != "POST" {
@@ -92,10 +93,15 @@ func handleRequest(ctx context.Context, request events.LambdaFunctionURLRequest)
 		}, nil
 	}
 	
-	// Parse the incoming request
-	var lambdaReq LambdaRequest
-	if err := json.Unmarshal([]byte(request.Body), &lambdaReq); err != nil {
-		log.Printf("Failed to parse request body: %v", err)
+	// Parse the incoming post2post wrapper request
+	var postData struct {
+		URL        string      `json:"url"`
+		Payload    interface{} `json:"payload"`
+		RequestID  string      `json:"request_id,omitempty"`
+		TailnetKey string      `json:"tailnet_key,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(request.Body), &postData); err != nil {
+		log.Printf("Failed to parse post2post wrapper: %v", err)
 		return events.LambdaFunctionURLResponse{
 			StatusCode: http.StatusBadRequest,
 			Body:       `{"error": "Invalid JSON payload"}`,
@@ -103,8 +109,33 @@ func handleRequest(ctx context.Context, request events.LambdaFunctionURLRequest)
 		}, nil
 	}
 	
+	log.Printf("Parsed post2post wrapper - URL: %s, RequestID: %s", postData.URL, postData.RequestID)
+	log.Printf("Payload content: %+v", postData.Payload)
+
+	// Extract the actual Lambda request from the payload
+	payloadBytes, err := json.Marshal(postData.Payload)
+	if err != nil {
+		log.Printf("Failed to marshal payload: %v", err)
+		return events.LambdaFunctionURLResponse{
+			StatusCode: http.StatusBadRequest,
+			Body:       `{"error": "Invalid payload structure"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
+	}
+
+	var lambdaReq LambdaRequest
+	if err := json.Unmarshal(payloadBytes, &lambdaReq); err != nil {
+		log.Printf("Failed to parse Lambda request from payload: %v", err)
+		return events.LambdaFunctionURLResponse{
+			StatusCode: http.StatusBadRequest,
+			Body:       `{"error": "Invalid Lambda request payload"}`,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+		}, nil
+	}
+	
 	log.Printf("Processing request ID: %s", lambdaReq.RequestID)
 	log.Printf("Role ARN to assume: %s", lambdaReq.RoleARN)
+	log.Printf("Callback URL from payload: %s", lambdaReq.URL)
 	if lambdaReq.TailnetKey != "" {
 		log.Printf("Tailscale integration enabled with key: %s...", lambdaReq.TailnetKey[:min(len(lambdaReq.TailnetKey), 10)])
 	}

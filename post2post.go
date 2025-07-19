@@ -249,6 +249,38 @@ func (s *Server) GetPostURL() string {
 	return s.postURL
 }
 
+// GetTailscaleURL returns the full URL for the server using Tailscale hostname
+func (s *Server) GetTailscaleURL() (string, error) {
+	s.mu.RLock()
+	port := s.port
+	s.mu.RUnlock()
+	
+	// Get Tailscale status to find our hostname
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	client := &tailscale.LocalClient{}
+	status, err := client.Status(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get Tailscale status: %w", err)
+	}
+	
+	if status.Self == nil {
+		return "", fmt.Errorf("Tailscale not connected or no self node found")
+	}
+	
+	// Use the Tailscale hostname (machine name + tailnet domain)
+	hostname := status.Self.DNSName
+	if hostname == "" {
+		return "", fmt.Errorf("no Tailscale hostname available")
+	}
+	
+	// Remove trailing dot if present
+	hostname = strings.TrimSuffix(hostname, ".")
+	
+	return fmt.Sprintf("http://%s:%d", hostname, port), nil
+}
+
 // PostJSON posts JSON data to the configured URL with server URL and payload
 func (s *Server) PostJSON(payload interface{}) error {
 	return s.PostJSONWithTailnet(payload, "")
