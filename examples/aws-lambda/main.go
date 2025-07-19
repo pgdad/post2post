@@ -287,7 +287,13 @@ func createTailscaleClient(tailnetKey string) (*http.Client, error) {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("timeout waiting for Tailscale to start")
 		default:
-			if srv.Up() {
+			status, err := srv.Up(ctx)
+			if err != nil {
+				log.Printf("Error checking Tailscale status: %v", err)
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			if status != nil {
 				log.Println("Tailscale tsnet server is ready")
 				goto ready
 			}

@@ -51,6 +51,12 @@ build/
 examples/receiver
 examples/client
 examples/test
+examples/aws-lambda/aws-lambda-post2post
+examples/aws-lambda/bootstrap.zip
+examples/aws-lambda/terraform/.terraform.lock.hcl
+examples/aws-lambda/terraform/.terraform/
+examples/aws-lambda/terraform/terraform.tfstate
+
 
 # Environment files
 .env
