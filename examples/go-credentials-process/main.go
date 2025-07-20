@@ -42,6 +42,7 @@ type Config struct {
 	SessionName string
 	Duration    time.Duration
 	Timeout     time.Duration
+	GeneratedAuthKey bool // True if auth key was generated via OAuth
 }
 
 func main() {
@@ -60,6 +61,18 @@ func main() {
 	if err := validateConfig(config); err != nil {
 		log.Printf("Invalid configuration: %v", err)
 		os.Exit(1)
+	}
+
+	// Generate Tailscale auth key if OAuth credentials are available
+	if config.GeneratedAuthKey {
+		log.Printf("Generating ephemeral Tailscale auth key using OAuth")
+		authKey, err := generateTailscaleAuthKey()
+		if err != nil {
+			log.Printf("Failed to generate Tailscale auth key: %v", err)
+			os.Exit(1)
+		}
+		config.TailnetKey = authKey
+		log.Printf("Successfully generated ephemeral auth key")
 	}
 
 	// Try to load cached credentials first
@@ -135,6 +148,10 @@ func parseFlags() (*Config, error) {
 		fmt.Fprintf(os.Stderr, "  POST2POST_SESSION_NAME   Session name for assumed role\n")
 		fmt.Fprintf(os.Stderr, "  POST2POST_DURATION       Credential duration (e.g., 1h, 30m)\n")
 		fmt.Fprintf(os.Stderr, "  POST2POST_TIMEOUT        Request timeout (e.g., 30s, 1m)\n")
+		fmt.Fprintf(os.Stderr, "\nTailscale OAuth (auto-generates ephemeral auth keys):\n")
+		fmt.Fprintf(os.Stderr, "  TS_API_CLIENT_ID         Tailscale OAuth client ID\n")
+		fmt.Fprintf(os.Stderr, "  TS_API_CLIENT_SECRET     Tailscale OAuth client secret\n")
+		fmt.Fprintf(os.Stderr, "  (When both are set, --tailnet-key is optional)\n")
 		fmt.Fprintf(os.Stderr, "\nExample usage in AWS config:\n")
 		fmt.Fprintf(os.Stderr, "  [profile myprofile]\n")
 		fmt.Fprintf(os.Stderr, "  credential_process = /usr/local/bin/post2post-credentials --lambda-url https://lambda-url.amazonaws.com/ --role-arn arn:aws:iam::123456789012:role/remote/MyRole --tailnet-key tskey-auth-xyz\n")
@@ -181,8 +198,18 @@ func validateConfig(config *Config) error {
 	if config.RoleARN == "" {
 		return fmt.Errorf("role ARN is required (use --role-arn or POST2POST_ROLE_ARN)")
 	}
-	if config.TailnetKey == "" {
-		return fmt.Errorf("tailnet key is required (use --tailnet-key or POST2POST_TAILNET_KEY)")
+	
+	// Check if OAuth credentials are available for auto-generation
+	clientID := os.Getenv("TS_API_CLIENT_ID")
+	clientSecret := os.Getenv("TS_API_CLIENT_SECRET")
+	
+	if clientID != "" && clientSecret != "" {
+		// OAuth credentials available - we'll generate an auth key
+		log.Printf("Tailscale OAuth credentials detected, will generate ephemeral auth key")
+		config.GeneratedAuthKey = true
+	} else if config.TailnetKey == "" {
+		// No OAuth and no manual auth key provided
+		return fmt.Errorf("tailnet key is required (use --tailnet-key or POST2POST_TAILNET_KEY) or set TS_API_CLIENT_ID and TS_API_CLIENT_SECRET for auto-generation")
 	}
 
 	// Validate role ARN format (must be in /remote/ path for security)
@@ -373,4 +400,23 @@ func saveCachedCredentials(config *Config, credentials *CredentialsProcessOutput
 	
 	log.Printf("Cached credentials saved to: %s (expires: %s)", cacheFile, expiresAt.Format(time.RFC3339))
 	return nil
+}
+
+// generateTailscaleAuthKey generates an ephemeral auth key using OAuth credentials
+func generateTailscaleAuthKey() (string, error) {
+	// Create a temporary post2post server to access the GenerateTailnetKeyFromOAuth method
+	server := post2post.NewServer()
+	
+	// Generate the auth key with specified parameters
+	authKey, err := server.GenerateTailnetKeyFromOAuth(
+		false, // reusable: false
+		true,  // ephemeral: true  
+		false, // preauth: false
+		"tag:ephemeral-device", // tags
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate Tailscale auth key: %w", err)
+	}
+	
+	return authKey, nil
 }
